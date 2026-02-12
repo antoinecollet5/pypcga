@@ -1,0 +1,114 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypcga"
+dynamic = ["version"]
+authors = [{ name = "Antoine Collet", email = "antoinecollet5@gmail.com" }]
+readme = "README.rst"
+description = "Reactive Transport Inversion demonstrator written in Python."
+keywords = [
+    "Inversion",
+    "Gradient descent",
+    "Reactive transport",
+    "Parameters estimation",
+    "Adjoint State",
+    "Demonstrator",
+]
+license = { text = "MIT license" }
+dependencies = [
+    "numpy>=1.2,<2.0",
+    "scipy>=1.12.2",
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://pypi.org/project/pypcga/"
+Documentation = "https://pypcga.readthedocs.io/en/latest/"
+Repository = "https://github.com/antoinecollet5/pypcga"
+Issues = "https://github.com/antoinecollet5/pypcga/issues"
+Changelog = "https://github.com/antoinecollet5/pypcga/blob/master/CHANGELOG.rst"
+
+[tool.setuptools]
+# packages = ["pypcga"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["pypcga*"]
+exclude = ["docs*", "tests*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pypcga.__about__.__version__" }
+
+[tool.ruff]
+lint.select = [
+    # Pyflakes
+    "F",
+    # Pycodestyle
+    "E",
+    "W",
+    # isort
+    "I",
+]
+src = ["src", "tests", "docs"]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+lint.fixable = ["A", "B", "C", "D", "E", "F", "I"]
+lint.unfixable = []
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+# Same as Black.
+line-length = 88
+
+# Allow unused variables when underscore-prefixed.
+lint.dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+# Assume Python 3.13.
+target-version = "py313"
+
+[tool.pylint.LOGGING]
+# Format style used to check logging format string. `old` means using %
+# formatting, `new` is for `{}` formatting,and `fstr` is for f-strings.
+logging-format-style = "fstr"
+
+
+[tool.codespell]
+skip = "*.pyc,*.gif,*.png,*.jpg,*.ply, ./bibliography.bib,*.ipynb"
+quiet-level = 3
+ignore-words-list = "lod,byteorder,flem,parm,revered,inout,nd,WEL,wel,shat,ist"

@@ -6,14 +6,14 @@ version 0.1
 
 updates
 - Exact preconditioner construction (inverse of cokriging/saddle-point matrix) using generalized eigendecomposition [Lee et al., WRR 2016, Saibaba et al, NLAA 2016]
-- Fast hyperparameter tuning and predictive model validation using cR/Q2 criteria [Kitanidis, Math Geol 1991] ([Lee et al., 2021 in preparation]) 
+- Fast hyperparameter tuning and predictive model validation using cR/Q2 criteria [Kitanidis, Math Geol 1991] ([Lee et al., 2021 in preparation])
 - Fast posterior variance/std computation using exact preconditioner
 
 version 0.2 will include
 - automatic covariance model parameter calibration with nearshore application example
-- link with [FMM](https://github.com/ruoxi-wang/PBBFMM3D) and HMatrix to support unstructured grids 
+- link with [FMM](https://github.com/ruoxi-wang/PBBFMM3D) and HMatrix to support unstructured grids
 
-# Installation 
+# Installation
 
 ```
 python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
@@ -25,7 +25,7 @@ python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
 
 # Example Notebooks
 
-1D linear inversion example below will be helpful to understand how pyPCGA can be implemented. Please check Google Colab examples. 
+1D linear inversion example below will be helpful to understand how pyPCGA can be implemented. Please check Google Colab examples.
 
 * [1D linear inversion example](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/linear_inverse_problem_pumping_history_identification.ipynb) (from Stanford 362G course) [Google Colab example](https://colab.research.google.com/drive/13lpxTYgNxOc1gYm2bMvIaTpGFejTVX0r?usp=sharing)
 
@@ -39,28 +39,28 @@ python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
 
 * [Permeability estimation example using TOUGH2](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tough_heat/joint_inversion_example_tough.ipynb) (with Amalia Kokkianki, USFCA)
 
-* [Electrical conductivity estimation example using magnetotelluric (MT) survey with MARE2DEM](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/mare2dem_MT/inversion_mare2dem.ipynb) (with Niels Grobbe, UHM) 
+* [Electrical conductivity estimation example using magnetotelluric (MT) survey with MARE2DEM](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/mare2dem_MT/inversion_mare2dem.ipynb) (with Niels Grobbe, UHM)
 
 * [DNAPL plume estimation using hydraulic head, self-potential (SP) and partitioning tracer data](https://github.com/XueyuanK/DNAPL_Inv) (with Xueyuan Kang et al.)
 
 * [ERT example using E4D](https://github.com/jonghyunharrylee/pyPCGA/tree/master/examples/ERT_E4D) will be completed soon.
 
-* MODFLOW-USG/SEAWAT/MODFLOW6 examples coming soon! 
+* MODFLOW-USG/SEAWAT/MODFLOW6 examples coming soon!
 
 # Credits
 
-pyPCGA is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR `Ike Wai project. 
+pyPCGA is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR `Ike Wai project.
 
 Code contributors include:
 
-* Jonghyun Harry Lee 
+* Jonghyun Harry Lee
 * Matthew Farthing
 * Ty Hesser (STWAVE example)
 * Antoine COLLET
- 
-FFT-based matvec code is adapted from Arvind Saibaba's work (https://github.com/arvindks/kle). 
 
-FMM-based code (https://arxiv.org/abs/1903.02153) will be incorporated in version 0.2 
+FFT-based matvec code is adapted from Arvind Saibaba's work (https://github.com/arvindks/kle).
+
+FMM-based code (https://arxiv.org/abs/1903.02153) will be incorporated in version 0.2
 
 # References
 
