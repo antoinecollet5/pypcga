@@ -67,13 +67,15 @@ if __name__ == "__main__":  # for windows application
     }
 
     # params['objeval'] = False, if true, it will compute accurate objective function
-    # params['ncores'] = 36, with parallel True, it will determine maximum physical core unless specified
+    # params['ncores'] = 36, with parallel True, it will determine maximum physical
+    # core unless specified
 
     s_init = -1.0 * np.ones((m, 1))  # or any initial guess you want
 
     # initialize
     prob = PCGA(forward_model, s_init, pts, params, obs=obs)
-    # prob = PCGA(forward_model, s_init, pts, params, s_true, obs, X = X) #if you want to add your own drift X
+    # if you want to add your own drift X
+    # prob = PCGA(forward_model, s_init, pts, params, s_true, obs, X = X)
 
     # run inversion
     s_hat, simul_obs, post_diagv, iter_best = prob.Run()

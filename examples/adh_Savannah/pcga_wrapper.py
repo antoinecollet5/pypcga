@@ -32,7 +32,8 @@ elevation_obs_file = "./observation_files/observation_loc_none.dat"  # empty
 true_soln_file_h5 = "./true_files/savannah_gridgen_true_nx501_ny41_p0.h5"
 true_soln_meshbase = "./true_files/savannah_gridgen_true_nx501_ny41"
 
-##instantiate the class that describes the forward problem geometry, boundary conditions, initial conditions
+# instantiate the class that describes the forward problem geometry, boundary
+# conditions, initial conditions
 # inflow discharge and free surface elevation at the boundary
 Q_b = 6873.5
 z_f = 97.14
@@ -115,7 +116,8 @@ if __name__ == "__main__":
     assert obs_indices.shape[0] == prm.nrobs
     np.savetxt(pdaf_obsind_file, obs_indices, header=header, comments="", fmt="%d")
 
-    ##now run the forward model with the true bathymetry, calculate the measurements and compare the difference
+    # now run the forward model with the true bathymetry, calculate the measurements
+    # and compare the difference
     x_meas = run_forward_model(x_true[: prm.nn])
 
     diff = x_meas - obs

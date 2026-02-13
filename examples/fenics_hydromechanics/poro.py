@@ -49,35 +49,6 @@ def mu_str(mu):
     return "_".join("{:.3f}".format(mu_) for mu_ in mu)
 
 
-# def solution_files(mu, solution_folder):
-#     return {c: SolutionFile(solution_folder,
-# "solution_" + c + "__" + mu_str(mu)) for c in components}
-
-
-# def write_solution(mu, solution_folder, from_):
-#     assert isinstance(from_, AbstractTimeSeries)
-#     TextIO.save_file(from_._time_interval, solution_folder, "time_interval__" + mu_str(mu) + ".txt")
-#     TextIO.save_file(from_._time_step_size, solution_folder, "time_step_size__" + mu_str(mu) + ".txt")
-#     files = solution_files(mu, solution_folder)
-#     for (t_index, solution_t) in enumerate(from_):
-#         for (c, f) in files.items():
-#             f.write(solution_t.sub(c), c, t_index)
-
-
-# def read_solution(mu, solution_folder, to):
-#     assert isinstance(to, BlockFunction)
-#     time_interval = TextIO.load_file(solution_folder, "time_interval__" + mu_str(mu) + ".txt")
-#     time_step_size = TextIO.load_file(solution_folder, "time_step_size__" + mu_str(mu) + ".txt")
-#     time_series = TimeSeries(time_interval, time_step_size)
-#     files = solution_files(mu, solution_folder)
-#     for (t_index, _) in enumerate(time_series.expected_times()):
-#         for (c, f) in files.items():
-#             files[c].read(to.sub(c), c, t_index)
-#         to.apply("from subfunctions")
-#         time_series.append(copy(to))
-#     return time_series
-
-
 def read_mesh():
     mesh = Mesh("data/biot_2mat.xml")
     subdomains = MeshFunction("size_t", mesh, "data/biot_2mat_physical_region.xml")
@@ -271,7 +242,7 @@ class Model:
         PM = FunctionSpace(mesh, "DG", 0)
         TM = TensorFunctionSpace(mesh, "DG", 0)
 
-        I = Identity(mesh.topology().dim())
+        _I = Identity(mesh.topology().dim())
 
         dx = Measure("dx", domain=mesh, subdomain_data=subdomains)
         ds = Measure("ds", domain=mesh, subdomain_data=boundaries)
@@ -353,10 +324,6 @@ class Model:
         ct = init_scalar_parameter(ct, ct_values[1], 501, subdomains)
 
         k = init_from_var_scalar_to_tensor(k, 0.0, 0.0, mu)
-        # xdmk = XDMFFile(mesh.mpi_comm(), "results/permeability_" + str(self.id) + ".xdmf")
-        # xdmk = XDMFFile(mesh.mpi_comm(), "results/permeability_" + str(idx) + ".xdmf")
-        # k.rename("perm", "permeability_eg")
-        # xdmk.write(k, 0.)
 
         # T = time_interval
         T = 1200.0
@@ -377,7 +344,7 @@ class Model:
 
         a = inner(2 * mu_l * strain(u) + lmbda_l * div(u) * I, sym(grad(v))) * dx
 
-        b = inner(-alpha * p * I, sym(grad(v))) * dx
+        b = inner(-alpha * p * _I, sym(grad(v))) * dx
 
         c = rho * alpha * div(u) * q * dx
 

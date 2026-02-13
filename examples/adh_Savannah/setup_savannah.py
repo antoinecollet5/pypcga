@@ -262,7 +262,6 @@ class SavannahRiverProblem(swp.ShallowWater2D_SimulationBasedProblem_AdH):
             )
             assert not fail
         hdf5_soln = tables.open_file(fileprefix + "_p0.h5", mode="r")
-        h = sr.read_from_adh_hdf5(hdf5_soln, "Ol_Head", self.ntsim)
         v = sr.read_from_adh_hdf5(hdf5_soln, "Ol_Velocity", self.ntsim)
         hdf5_soln.close()
 

@@ -6,7 +6,8 @@ import numpy as np
 from scipy.io import loadmat
 
 """
-example from CEE362g Stanford, pumping history reconstruction for horizontal infinite aquier
+example from CEE362g Stanford, pumping history
+reconstruction for horizontal infinite aquier
 aquifer properties
 T = 0.02   # transmissivity [L^2/T]
 S = 0.001  # storatotivity  [/]
@@ -172,7 +173,6 @@ if __name__ == "__main__":
     nrelzs = 2
 
     # if your ipython does not work with parallel runs, please uncomment below
-    # __spec__ = "ModuleSpec(name='builtins', loader=<class '_frozen_importlib.BuiltinImporter'>)"
 
     print("(2) parallel run with ncores = %d" % ncores)
     par = True  # parallelization false

@@ -16,7 +16,7 @@ keywords = [
     "Adjoint State",
     "Demonstrator",
 ]
-license = { text = "MIT license" }
+license = { file = "LICENSE" }
 dependencies = [
     "numpy>=1.2,<2.0",
     "scipy>=1.12.2",
@@ -25,7 +25,6 @@ requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -33,6 +32,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [project.urls]
@@ -63,7 +63,7 @@ lint.select = [
     # isort
     "I",
 ]
-src = ["src", "tests", "docs"]
+src = ["pypcga", "tests", "docs"]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
 lint.fixable = ["A", "B", "C", "D", "E", "F", "I"]
@@ -71,6 +71,7 @@ lint.unfixable = []
 
 # Exclude a variety of commonly ignored directories.
 exclude = [
+    "examples",  # !!! This is temporary, it will be reintroduced later on !!!
     ".bzr",
     ".direnv",
     ".eggs",

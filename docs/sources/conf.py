@@ -342,7 +342,7 @@ latex_elements = {
 # (source start file, target name, title, author, documentclass
 # [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "pypcga.tex", "pypcga Documentation", "Antoine Collet", "manual"),
+    (master_doc, "pypcga.tex", "pypcga Documentation", "manual"),
 ]
 
 
