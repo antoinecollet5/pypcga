@@ -20,6 +20,7 @@ from typing import Any, Callable, Generator, Iterator, List, Optional, Tuple, Un
 
 import numpy as np
 import scipy as sp
+import covmats
 from covmats import (
     ConstantDriftMatrix,
     CovarianceMatrix,
@@ -103,90 +104,13 @@ class InternalState:
         return self.cR_seq[-1]
 
 
-class CovObs(LinearOperator):
-    # TODO: create an interface so we can handle the covariance matrix in
-    # different ways.
-    def __init__(self, cov: NDArrayFloat, n_obs: int) -> None:
-        """Initialize the instance."""
-        error = ValueError(
-            f"cov_obs must be either a 1D matrix of {n_obs} elements, or "
-            f"a 2D matrix with dimensions ({n_obs}, {n_obs})."
-        )
-        if cov.size == 1:
-            # Case of a float
-            cov = np.ones((n_obs)) * cov
-        else:
-            # Case of 1D or 2D array with more than one value
-            if cov.ndim > 2:
-                raise error
-            if cov.shape[0] != n_obs:  # type: ignore
-                raise error
-            if cov.ndim == 2:
-                if cov.shape[0] != cov.shape[1]:  # type: ignore
-                    raise error
-        # From iterative_ensemble_smoother code
-        # Only compute the covariance factorization once
-        # If it's a full matrix, we gain speedup by only computing cholesky once
-        # Note that we store the upper triangle.
-        # If it's a diagonal, we gain speedup by never having to compute cholesky
-        if cov.ndim == 2:
-            self.lcho_factor: NDArrayFloat = sp.linalg.cholesky(cov, lower=True)
-        else:
-            self.lcho_factor = np.sqrt(cov)  # type: ignore
-
-        super().__init__(shape=(n_obs, n_obs), dtype=np.float64)
-        self.mat: NDArrayFloat = cov
-
-    def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
-        """Return cov_obs @ v."""
-        if self.mat.ndim == 1:
-            return self.mat * v
-        return self.mat @ v
-
-    def _rmatvec(self, v: NDArrayFloat) -> NDArrayFloat:
-        """Return cov_obs @ v."""
-        return self._matvec(v)
-
-    def _matmat(self, V: NDArrayFloat) -> NDArrayFloat:
-        return self._matvec(V)
-
-    def solve(self, v: NDArrayFloat) -> NDArrayFloat:
-        """Return cov_obs^{-1} @ v."""
-        if self.mat.ndim == 2:
-            # The false means we use the upper triangle which is store in
-            # self.cov_obs
-            return sp.linalg.cho_solve((self.lcho_factor, True), v)
-        # Case 1D, the inverse of cov_obs (R matrix) is a diagonal matrix
-        return sp.sparse.diags_array(1.0 / (self.lcho_factor**2)) @ v
-
-    def add_inflated(self, mat: NDArrayFloat, inflation: float = 1.0) -> NDArrayFloat:
-        """Add the inflated covariance matrix to the given matrix."""
-        # Add the R matrix
-        if self.mat.ndim == 2:
-            return mat + inflation * self.mat
-        # Ri is diagonal
-        np.fill_diagonal(mat, mat.diagonal() + inflation * self.mat)
-        return mat
-
-    def todense(self) -> NDArrayFloat:
-        if self.mat.ndim == 1:
-            return np.diag(self.mat)
-        return self.mat
-
-    def __add__(self, other: NDArrayFloat) -> NDArrayFloat:
-        return self.add_inflated(other, 1.0)
-
-    def __sub__(self, other: NDArrayFloat) -> NDArrayFloat:
-        return self.add_inflated(other, -1.0)
-
-
 class InvALinOp(LinearOperator):
     def __init__(
         self,
         HX: NDArrayFloat,
         HZZTHT_eig_vects: NDArrayFloat,
         HZZTHT_eig_vals: NDArrayFloat,
-        cov_obs: CovObs,
+        cov_obs: covmats.CovarianceMatrix,
         n_obs: int,
         beta_dim: int,
     ) -> None:
@@ -217,14 +141,14 @@ class InvALinOp(LinearOperator):
             - (self.HZZTHT_eig_vects @ (Dvec @ (self.HZZTHT_eig_vects.T @ v)))
         )
 
-    def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
+    def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
         # See Eq. 14 in leeScalableSubsurfaceInverse2016.
         # Warning, there is typo for the block 22 of A^{-1}.
         # i.e., it is -S^{-1} instead of -S.
 
         # (n_obs, 1) vector  -> First part of the multiplication with
         # block (1, 1) of A^{-1}
-        invPsiv = self.inv_psi(v[: self.n_obs], self.inflation)
+        invPsiv = self.inv_psi(x[: self.n_obs], self.inflation)
 
         # S is a p by p matrix
         S = np.dot(self.HX.T, self.inv_psi(self.HX, self.inflation))
@@ -241,11 +165,11 @@ class InvALinOp(LinearOperator):
 
         # multiplication with block (1,2) of A^{-1} =>  \Psi^{-1} \Phi^T S^{-1}
         invPsiHXinvSv1 = self.inv_psi(
-            np.dot(self.HX, invS @ v[self.n_obs :]), self.inflation
+            np.dot(self.HX, invS @ x[self.n_obs :]), self.inflation
         )
 
         # multiplication with block (2, 2)
-        invSv1 = invS @ v[self.n_obs :]
+        invSv1 = invS @ x[self.n_obs :]
 
         # Gathering the resulting vector.
         return np.concatenate(
@@ -256,15 +180,15 @@ class InvALinOp(LinearOperator):
             axis=0,
         )
 
-    def _matmat(self, V: NDArrayFloat) -> NDArrayFloat:
+    def _matmat(self, X: NDArrayFloat) -> NDArrayFloat:
         # _matvec supports matrix multiplication.
-        return self._matvec(V)
+        return self._matvec(X)
 
-    def _rmatvec(self, v: NDArrayFloat) -> NDArrayFloat:
-        return self._matvec(v)
+    def _rmatvec(self, x: NDArrayFloat) -> NDArrayFloat:
+        return self._matvec(x)
 
-    def _rmatmat(self, V: NDArrayFloat) -> NDArrayFloat:
-        return self._rmatvec(V)
+    def _rmatmat(self, X: NDArrayFloat) -> NDArrayFloat:
+        return self._rmatvec(X)
 
     def get_invPsi(self, inflation) -> NDArrayFloat:
         return self.inv_psi(np.identity(self.n_obs), inflation)
@@ -283,9 +207,9 @@ class PCGA:
         self,
         s_init: NDArrayFloat,
         obs: NDArrayFloat,
-        cov_obs: Union[float, NDArrayFloat],
+        cov_obs: covmats.CovarianceMatrix,
         forward_model: Callable,
-        Q: CovViaEigenFactorization,
+        Q: covmats.CovViaEigenFactorization,
         drift: Optional[DriftMatrix] = None,
         prior_s_var: Optional[Union[float, NDArrayFloat]] = None,
         callback: Optional[Callable] = None,
@@ -309,8 +233,7 @@ class PCGA:
         restol: float = 1e-2,
         logger: Optional[logging.Logger] = None,
         is_save_jac: bool = True,
-        # PCGA parameters (perturbation size)
-        eps=1.0e-8,
+        eps: float = 1.0e-8,
     ) -> None:
         r"""
         Initialize the instance.
@@ -321,20 +244,20 @@ class PCGA:
             1D array of initial control parameters, i.e., initial solution for
             Gauss-Newton method. In theory, the choice of
             s_init does not affect the estimation while total number of
-            iterations/number of forward model runs depend on `s_init`.
+            iterations/number of forward model runs depend on `s_init`. Expected
+            shape is (:math:`N_{s}`) or (:math:`N_{s}, 1`).
         obs : numpy.ndarray, optional
             1D array of (noisy) measurements used for inversion.
-        cov_obs : NDArrayFloat
+        cov_obs : covmats.CovarianceMatrix
             Covariance matrix of observed data measurement errors with dimensions
             (:math:`N_{obs}`, :math:`N_{obs}`). Also denoted :math:`R`.
-            If a 1D array is passed, it represents a diagonal covariance matrix.
-            If a float is passed, it means the noise is the same for all
-            measurements.
+            All covariance representations provided by `covmats` are supported.
         forward_model : Callable
             Wrapper for forward model obs = f(s). See a template python file in each
-            example for more information. Return shape (n_obs, ne)
-        Q : CovViaEigenFactorization
-            _description_
+            example for more information. Return shape (n_obs, ne).
+        Q : covmats.CovViaEigenFactorization
+            Eigen factorization of the Covariance matrix of the inverted parameters
+            with shape (:math:`N_{s}`, :math:`N_{s}`).
         drift : Optional[DriftMatrix], optional
             _description_, by default None
         prior_s_var : Optional[Union[float, NDArrayFloat]], optional
@@ -342,13 +265,33 @@ class PCGA:
         callback : Optional[Callable], optional
             _description_, by default None
         is_line_search : bool, optional
-            _description_, by default False
+            Whether to use line search (add ref) if the Gauss-Newton iteration fails
+            to lower the cost function value. It comes at the cost of
+            extra forward model runs (not parallelized). By default False.
         is_lm : bool, optional
-            _description_, by default False
+            Whether to use Levenberg Marquard inner iterations in each Gauss-Newton
+            iteartions. It consists in inflating the covariance matrix of observed data
+            measurement errors (`cov_obs`), by adding weights on its diagonal.
+            It acts as a regularization and can help to make the objective function
+            more convex. This comes at the price of extra system inversions and
+            `max_it_lm` forward model runs. The runs can be performed in parallel
+            since it relies on `forward_model`. But it is the user's responsibility
+            to parallelize  `forward_model`. By default False.
         is_direct_solve : bool, optional
-            _description_, by default False
+            Whether to solve the saddle point system (Ax = b), see eq 22 in (add ref),
+            with:
+                - the direct approach (Cholesky factorization of A), see eq 22 in
+            (add ref)
+                - or to use the alternative iterative Krylov subspace approach,
+                see eq (22) in.
+
+            Using direct solve is practical if the number of observations is around 100
+            or less. Beyond, it is advise to rely on the The default is False
+            (using iterative Kryloc subspace by default).
         is_use_preconditioner : bool, optional
-            _description_, by default False -> This is highly recommended.
+            Whether to use preconditioning when using the iterative Krylov subspace
+            approach to solve the saddle point system (`is_direct_solve=False`).
+            This is highly recommended. By default True.
         random_state : Optional[ Union[int, np.random.Generator, np.random.RandomState]]
             Pseudorandom number generator state used to generate resamples.
             If `random_state` is ``None`` (or `np.random`), the
@@ -359,14 +302,17 @@ class PCGA:
             instance then that instance is used.
         is_objfun_exact : bool, optional
             _description_, by default False
+        max_it_lm: int
+            Maximum number iterations when using Levenberg Marquard regularization.
+            Only applies if `is_lm` is True. By default use all available CPUs.
         alphamax_lm : float, optional
-            _description_, by default 10.0**3.0
+            Maximum weight for LM. TODO: add the formula. By default 10.0**3.
         lm_smax : Optional[float], optional
-            _description_, by default None
+            Maximum LM solution, by default None
         max_it_ls : int, optional
-            _description_, by default 20
+            Maximum number of iterations when using line search, by default 20.
         maxiter : int, optional
-            _description_, by default 10
+            Maximum Gauss-Newton iterations, by default 10.
         ftarget: Optional[Union[float, Callable]] = None, optional
             Target objective function (stop criterion) .
             The iteration stops when ``f^{k+1} <= fmin``. If None, the stop criterion
@@ -391,19 +337,19 @@ class PCGA:
                 \mathbf{s}_{\ell} \right\rVert^{2}}
             by default 1e-2.
         logger: Optional[Logger], optional
-            Logger, by default None.
+            Logger instance. If no logger is passed, there will be no output.
+            By default None.
         is_save_jac : bool, optional
             _description_, by default False
-        eps : _type_, optional
-            _description_, by default 1.0e-8
+        eps : float, optional
+            PCGA pertubation scalar (see eq. in ...), By default 1.0e-8.
         """
         ##### Forward Model
         # Make sure the array has a second dimension of length 1.
         self.s_init = np.array(s_init).reshape(-1, 1)
         # Observations
         self.obs = np.array(obs).ravel()  # 1D vector
-        # TODO: change
-        self.cov_obs = CovObs(np.asarray(cov_obs), self.d_dim)
+        self.cov_obs = cov_obs
         # forward solver setting should be done externally as a blackbox
         # including the parallelization
         self.forward_model = forward_model
@@ -542,7 +488,7 @@ class PCGA:
     @property
     def s_dim(self) -> int:
         """Return the length of the parameters vector."""
-        return self.s_init.size  # type: ignore
+        return self.s_init.size
 
     @property
     def n_obs(self) -> int:
@@ -555,12 +501,12 @@ class PCGA:
         return self.n_obs
 
     @property
-    def cov_obs(self) -> CovObs:
+    def cov_obs(self) -> covmats.CovarianceMatrix:
         """Get the observation errors covariance matrix."""
         return self._cov_obs
 
     @cov_obs.setter
-    def cov_obs(self, value: CovObs) -> None:
+    def cov_obs(self, value: covmats.CovarianceMatrix) -> None:
         """
         Set the observation errors covariance matrix.
 
@@ -1059,14 +1005,14 @@ class PCGA:
                 """Initialize the instance."""
                 super().__init__(shape=(n_obs, n_pc), dtype=np.float64)
 
-            def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
+            def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
                 # P*HZ*x = ((I-(U_data*U_data.T))*HZ)*x '''
-                tmp = np.dot(HZ, v)
+                tmp = np.dot(HZ, x)
                 return tmp - np.dot(U_data, np.dot(U_data.T, tmp))
 
-            def _rmatvec(self, v: NDArrayFloat) -> NDArrayFloat:
-                return np.dot(HZ.T, v) - np.dot(
-                    HZ.T, np.dot(U_data, np.dot(U_data.T, v))
+            def _rmatvec(self, x: NDArrayFloat) -> NDArrayFloat:
+                return np.dot(HZ.T, x) - np.dot(
+                    HZ.T, np.dot(U_data, np.dot(U_data.T, x))
                 )
 
         # Compute eig(P*(HQHT+R)*P) approximately by svd(P*(HZ*HZ' + R)*P)
@@ -1335,7 +1281,7 @@ class PCGA:
         return x
 
     def get_invA_as_linop(
-        self, HZ: NDArrayFloat, HX: NDArrayFloat, cov_obs: CovObs
+        self, HZ: NDArrayFloat, HX: NDArrayFloat, cov_obs: covmats.CovarianceMatrix
     ) -> InvALinOp:
         """
         Return the low rank inverse of A as a linear operator.
@@ -1378,15 +1324,15 @@ class PCGA:
             def __init__(self) -> None:
                 super().__init__(shape=(n_obs, n_obs), dtype=np.float64)
 
-            def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
-                return cov_obs.solve(v)
+            def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
+                return cov_obs.solve(x)
 
         class HZZTHTLinOp(LinearOperator):
             def __init__(self) -> None:
                 super().__init__(shape=(n_obs, n_obs), dtype=np.float64)
 
-            def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
-                return HZ @ (HZ.T @ v)
+            def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
+                return HZ @ (HZ.T @ x)
 
         HZZTHT_eig_vects, HZZTHT_eig_vals = ghep(
             HZZTHTLinOp(),
@@ -1702,7 +1648,7 @@ class PCGA:
         return s_hat, simul_obs, post_diagv, iter_best
 
     def get_psi(
-        self, HZ: NDArrayFloat, cov_obs: CovObs, inflation: float
+        self, HZ: NDArrayFloat, cov_obs: covmats.CovarianceMatrix, inflation: float
     ) -> NDArrayFloat:
         """Get the matrix HQH^{T} + \alpha R."""
         return cov_obs.add_inflated(np.dot(HZ, HZ.T), inflation)
@@ -1769,11 +1715,11 @@ class PCGA:
                     shape=(n_obs + beta_dim, n_obs + beta_dim), dtype=np.float64
                 )
 
-            def _matvec(self, v: NDArrayFloat) -> NDArrayFloat:
-                return mv(v)
+            def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
+                return mv(x)
 
-            def _rmatvec(self, v: NDArrayFloat) -> NDArrayFloat:
-                return mv(v)
+            def _rmatvec(self, x: NDArrayFloat) -> NDArrayFloat:
+                return mv(x)
 
         return ALinOp()
 
@@ -1781,7 +1727,7 @@ class PCGA:
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
-        cov_obs: CovObs,
+        cov_obs: covmats.CovarianceMatrix,
         inflation: float,
     ) -> NDArrayFloat:
         """Computing posterior diagonal entries using cholesky."""
@@ -1803,7 +1749,7 @@ class PCGA:
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
-        cov_obs: CovObs,
+        cov_obs: covmats.CovarianceMatrix,
         inflation: float,
     ) -> NDArrayFloat:
         """Computing posterior diagonal entries using cholesky."""
@@ -1820,7 +1766,7 @@ class PCGA:
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
-        cov_obs: CovObs,
+        cov_obs: covmats.CovarianceMatrix,
         inflation: float,
         n_pc: int,
         random_state,
@@ -1829,7 +1775,10 @@ class PCGA:
         Return the posterior covariance matrix Eigen factorization.
 
         Here the eigen factorization is build using cholesky factorization.
-        This is practical for ...
+
+        Notes
+        -----
+        This is practical for posterior sampling.
         """
         Psi = self.get_psi(HZ, cov_obs, inflation)
         Z = np.sqrt(self.Q.eig_vals).T * self.Q.eig_vects
@@ -1841,18 +1790,24 @@ class PCGA:
         # Use cholesky factorization to solve the system
         LA = self.build_cholesky(Psi, HX)
 
-        class _op(CovarianceMatrix):
+        class _op(LinearOperator):
+
+            def __init__(self):
+                super().__init__(shape=Q.shape, dtype="d")
+
             def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
                 """Return the covariance matrix times the vector x."""
                 return Q @ x - b_all.T @ PCGA.solve_cholesky(LA, b_all @ x, p)
 
-        return eigen_factorize_cov_mat(_op(Q.shape), n_pc, random_state)
+        return covmats.CovViaEigenFactorization(
+            covmats.get_linop_eigen_factorization(_op(), n_pc, random_state)
+        )
 
     def get_eigen_post_cov_iterative_krylov_subspace(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
-        cov_obs: CovObs,
+        cov_obs: covmats.CovarianceMatrix,
         inflation: float,
         n_pc: int,
         random_state,
@@ -1865,19 +1820,29 @@ class PCGA:
 
         See Appendix B: Fast Posterior Variance Computation in
         leeScalableSubsurfaceInverse2016.
+
+        Notes
+        -----
+        This is practical for posterior sampling.
         """
         Z = np.sqrt(self.Q.eig_vals).T * self.Q.eig_vects
         # [HQ, X^{T}]  shape (N_s, N_obs + N_p)
         b_all = np.vstack([np.dot(HZ, Z.T), self.drift.mat.T])
         Q = self.Q
-        # Use cholesky factorization to solve the system
+        # Use iterative Krylov subspace to solve the system
         _solve = self._solve_iterative_subspace_krylov
         Afun = self.get_A_as_linop(HX, HZ, inflation)
         invA_as_linop = self.get_invA_as_linop(HZ, HX, cov_obs)
 
-        class _op(CovarianceMatrix):
+        class _op(LinearOperator):
+
+            def __init__(self):
+                super().__init__(shape=Q.shape, dtype="d")
+
             def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
                 """Return the covariance matrix times the vector x."""
                 return Q @ x - b_all.T @ _solve(Afun, b=b_all @ x, invA=invA_as_linop)
 
-        return eigen_factorize_cov_mat(_op(Q.shape), n_pc, random_state)
+        return covmats.CovViaEigenFactorization(
+            covmats.get_linop_eigen_factorization(_op(), n_pc, random_state)
+        )
