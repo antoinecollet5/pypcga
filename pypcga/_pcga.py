@@ -79,7 +79,7 @@ class InternalState:
     is_success: bool = False
 
     @property
-    def obj_best(self) -> float:
+    def best_obj(self) -> float:
         """
         Return the best objective function obtained in the optimization.
 
@@ -92,8 +92,12 @@ class InternalState:
         return self.Q2_seq[self.iter_best - 1]
 
     @property
-    def cR_best(self) -> float:
+    def best_cR(self) -> float:
         return self.cR_seq[self.iter_best - 1]
+
+    @property
+    def best_inflation(self) -> float:
+        return self.inflation_seq[self.iter_best - 1]
 
     @property
     def Q2_cur(self) -> float:
@@ -201,10 +205,48 @@ class PCGA:
     Every values are represented as 2D np.array.
     """
 
-    # TODO: __slots__
+    __slots__: List[str] = [
+        "s_init",
+        "obs",
+        "_cov_obs",
+        "forward_model",
+        "Q",
+        "callback",
+        "is_line_search",
+        "is_lm",
+        "is_direct_solve",
+        "is_use_preconditioner",
+        "is_objfun_exact",
+        "max_it_lm",
+        "alphamax_lm",
+        "lm_smin",
+        "lm_smax",
+        "max_it_ls",
+        "maxiter",
+        "ftol",
+        "restol",
+        "ftarget",
+        "eps",
+        "max_workers",
+        "istate",
+        "random_state",
+        "_prior_s_var",
+        "post_diagv",
+        "drift",
+        "is_save_jac",
+        "is_use_preconditioner",
+        "cov_obs_inflation_factors",
+        "logger",
+        "HX",
+        "HZ",
+        "Hs",
+        "invA_as_linop",
+        "simul_obs_init",
+    ]
 
     def __init__(
         self,
+        *,
         s_init: NDArrayFloat,
         obs: NDArrayFloat,
         cov_obs: covmats.CovarianceMatrix,
@@ -250,11 +292,11 @@ class PCGA:
             1D array of (noisy) measurements used for inversion.
         cov_obs : covmats.CovarianceMatrix
             Covariance matrix of observed data measurement errors with dimensions
-            (:math:`N_{obs}`, :math:`N_{obs}`). Also denoted :math:`R`.
-            All covariance representations provided by `covmats` are supported.
+            (:math:`N_{\mathrm{obs}}`, :math:`N_{\mathrm{obs}}`). Also denoted :math:`R`.
+            All covariance representations provided by :py:mod:`covmats` are supported.
         forward_model : Callable
             Wrapper for forward model obs = f(s). See a template python file in each
-            example for more information. Return shape (n_obs, ne).
+            example for more information. Return shape (:math:`N_{\mathrm{obs}}`, :math:`N_{e}`).
         Q : covmats.CovViaEigenFactorization
             Eigen factorization of the Covariance matrix of the inverted parameters
             with shape (:math:`N_{s}`, :math:`N_{s}`).
@@ -278,13 +320,13 @@ class PCGA:
             since it relies on `forward_model`. But it is the user's responsibility
             to parallelize  `forward_model`. By default False.
         is_direct_solve : bool, optional
-            Whether to solve the saddle point system (Ax = b), see eq 22 in (add ref),
+            Whether to solve the saddle point system (Ax = b), see eq 4.53 in (add ref),
             with:
-                - the direct approach (Cholesky factorization of A), see eq 22 in
-            (add ref)
-                - or to use the alternative iterative Krylov subspace approach,
-                see eq (22) in.
-
+                - the direct approach (Cholesky factorization of A), see eq (4.57) in
+            :cite:`colletAssistedHistoryMatching2024a`
+                - or to use the alternative iterative Krylov subspace approach as
+                described in :cite`saibabaEfficientMethodsLargescale2012,
+                saibabaFastAlgorithmsGeostatistical2013`.
             Using direct solve is practical if the number of observations is around 100
             or less. Beyond, it is advise to rely on the The default is False
             (using iterative Kryloc subspace by default).
@@ -432,6 +474,8 @@ class PCGA:
         # None by default -> updated later
         self.invA_as_linop: Optional[InvALinOp] = None
 
+        self.simul_obs_init: NDArrayFloat = np.array([], dtype=np.float64)
+
         ##### Optimization
         self.display_init_parameters()
 
@@ -512,6 +556,10 @@ class PCGA:
 
         It must be a 2D array, or a 1D array if the covariance matrix is diagonal.
         """
+        if not isinstance(value, covmats.CovarianceMatrix):
+            raise ValueError(
+                "`cov_obs` must be an implementation of `covmats.CovarianceMatrix`"
+            )
         self._cov_obs = value
 
     @property
@@ -822,7 +870,7 @@ class PCGA:
         start2 = time()
 
         self.loginfo(
-            f"computed Jacobian-Matrix products in : {(start2 - start1):.3e} secs"
+            f"computed Jacobian-Matrix products in : {(start2 - start1):.3e} s"
         )
 
         b = np.zeros((n + p, 1), dtype="d")
@@ -1027,10 +1075,10 @@ class PCGA:
 
         # self.loginfo(
         #     "eig. val. of generalized data covariance : "
-        #     "%f secs (%8.2e, %8.2e, %8.2e)"
+        #     "%f se (%8.2e, %8.2e, %8.2e)"
         #     % (time() - start2, sigma_cR[0], sigma_cR.min(), sigma_cR.max())
         # )
-        # # of generalized data covariance : %f secs (%8.2e, %8.2e, %8.2e)"
+        # # of generalized data covariance : %f s (%8.2e, %8.2e, %8.2e)"
         # # % (start2 - start1, time()-start2,sigma_cR[0],sigma_cR.min(),
         # # sigma_cR.max()))
 
@@ -1381,20 +1429,20 @@ class PCGA:
 
         # will change assert to valueerror
         assert np.size(simul_obs_all, 1) == n_internal_loops
-        obj_best = 1.0e20
+        best_obj = 1.0e20
 
         for i in range(n_internal_loops):
             obj = self.objective_function_no_beta(
                 s_hat_all[:, i : i + 1], simul_obs_all[:, i : i + 1]
             )
 
-            if obj < obj_best:
+            if obj < best_obj:
                 self.loginfo("%d-th solution obj %e (delta %f)" % (i, obj, delta[i]))
                 s_hat = s_hat_all[:, i : i + 1]
                 simul_obs_new = simul_obs_all[:, i : i + 1]
-                obj_best = obj
+                best_obj = obj
 
-        return s_hat, simul_obs_new, obj_best
+        return s_hat, simul_obs_new, best_obj
 
     def display_objfun(
         self,
@@ -1484,7 +1532,7 @@ class PCGA:
             start = time()
 
             # TODO: make a loop for that
-
+            self.loginfo("")
             self.loginfo(f"***** Iteration {n_iter + 1} ******")
             s_cur, beta_cur, simul_obs_cur, inflation_cur, obj, Q2, cR = (
                 self.linear_iteration(s_past, simul_obs_cur)
@@ -1591,15 +1639,15 @@ class PCGA:
                     "start direct posterior variance computation "
                     "- this option works for O(nobs) ~ 100"
                 )
-                self.post_diagv = self.compute_post_cov_diag_cholesky(
+                self.post_diagv = self._compute_post_cov_diag_cholesky(
                     self.HZ, self.HX, self.cov_obs, inflation_cur
                 )
             else:
                 self.loginfo("start posterior variance computation")
-                self.post_diagv = self.compute_post_cov_diag_iterative_krylov_subspace(
+                self.post_diagv = self._compute_post_cov_diag_iterative_krylov_subspace(
                     self.HZ, self.HX, self.cov_obs, inflation_cur
                 )
-            self.loginfo("posterior diag. computed in %f secs" % (time() - start))
+            self.loginfo(f"posterior diag. computed in {(time() - start):.3e} s")
             # if self.iter_save:
             #     np.savetxt("./postv.txt", self.post_diagv)
 
@@ -1622,7 +1670,7 @@ class PCGA:
             simul_obs_init.size,
             rmse_best,
             n_rmse_best,
-            obj=self.istate.obj_best,
+            obj=self.istate.best_obj,
         )
 
         self.loginfo(
@@ -1630,7 +1678,7 @@ class PCGA:
             " (should be as close to 1.0 as possible.)"
         )
         self.loginfo(
-            f"- Final cR = {self.istate.cR_best:.3e} (should be as small as possible.)"
+            f"- Final cR = {self.istate.best_cR:.3e} (should be as small as possible.)"
         )
 
         return (
@@ -1643,7 +1691,7 @@ class PCGA:
     def run(self) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat, int]:
         start = time()
         s_hat, simul_obs, post_diagv, iter_best = self.gauss_newton()
-        self.loginfo(f"** Total elapsed time is {(time() - start):.3e} secs")
+        self.loginfo(f"** Total elapsed time is {(time() - start):.3e} s")
         self.loginfo("----------------------------------------------------------")
         return s_hat, simul_obs, post_diagv, iter_best
 
@@ -1651,7 +1699,7 @@ class PCGA:
         self, HZ: NDArrayFloat, cov_obs: covmats.CovarianceMatrix, inflation: float
     ) -> NDArrayFloat:
         """Get the matrix HQH^{T} + \alpha R."""
-        return cov_obs.add_inflated(np.dot(HZ, HZ.T), inflation)
+        return cov_obs.todense() + inflation * np.dot(HZ, HZ.T)
 
     @staticmethod
     def build_cholesky(Psi: NDArrayFloat, HX: NDArrayFloat) -> NDArrayFloat:
@@ -1723,7 +1771,7 @@ class PCGA:
 
         return ALinOp()
 
-    def compute_post_cov_diag_cholesky(
+    def _compute_post_cov_diag_cholesky(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
@@ -1745,7 +1793,7 @@ class PCGA:
             )
         ).reshape(-1, 1)
 
-    def compute_post_cov_diag_iterative_krylov_subspace(
+    def _compute_post_cov_diag_iterative_krylov_subspace(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
@@ -1762,7 +1810,7 @@ class PCGA:
             self.prior_s_var - np.sum(b_all * (invA_as_linop @ b_all), axis=0)
         ).reshape(-1, 1)
 
-    def get_eigen_post_cov_choleksy(
+    def _get_eigen_post_cov_choleksy(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
@@ -1800,10 +1848,10 @@ class PCGA:
                 return Q @ x - b_all.T @ PCGA.solve_cholesky(LA, b_all @ x, p)
 
         return covmats.CovViaEigenFactorization(
-            covmats.get_linop_eigen_factorization(_op(), n_pc, random_state)
+            covmats.get_linop_eigen_factorization(_op(), size=self.s_dim, n_pc=n_pc, random_state=random_state)
         )
 
-    def get_eigen_post_cov_iterative_krylov_subspace(
+    def _get_eigen_post_cov_iterative_krylov_subspace(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
@@ -1844,5 +1892,76 @@ class PCGA:
                 return Q @ x - b_all.T @ _solve(Afun, b=b_all @ x, invA=invA_as_linop)
 
         return covmats.CovViaEigenFactorization(
-            covmats.get_linop_eigen_factorization(_op(), n_pc, random_state)
+            covmats.get_linop_eigen_factorization(_op(), size=self.s_dim, n_pc=n_pc, random_state=random_state)
+        )
+
+    def get_eigen_post_cov(
+        self,
+        is_direct_solve: Optional[bool] = None,
+        inflation: Optional[float] = None,
+        n_pc: Optional[int] = None,
+        random_state: Optional[
+            Union[int, np.random.Generator, np.random.RandomState]
+        ] = None,
+    ) -> CovViaEigenFactorization:
+        """
+        Return the posterior covariance matrix Eigen factorization.
+
+        Notes
+        -----
+        This is practical for posterior sampling.
+
+        Parameters
+        ----------
+        is_direct_solve : Optional[bool], optional
+            _description_, by default None
+        inflation : Optional[float], optional
+            Inflation factor used to build the posterior covariance matrix.
+            If None, the random_state used by PCGA is taken. By default None.
+        n_pc : Optional[int], optional
+            Number of principal component used for the eigen factorization of the
+            posterior covariance matrix.
+            It can differ from the number of PC used by PCGA.
+            If None, the number of PC used by PCGA is taken. By default None.
+        random_state : Optional[ Union[int, np.random.Generator, np.random.RandomState] ], optional
+            If None, the random_state used by PCGA is taken. By default None.
+
+        Returns
+        -------
+        CovViaEigenFactorization
+            Low rank approximation of the posterior covariance matrix.
+        """
+        if is_direct_solve is None:
+            _is_direct_solve: bool = self.is_direct_solve
+        else:
+            _is_direct_solve = is_direct_solve
+        if inflation is None:
+            _inflation: float = self.istate.best_inflation
+        else:
+            _inflation = inflation
+        if n_pc is None:
+            _n_pc: int = self.Q.n_pc
+        else:
+            _n_pc = n_pc
+        if random_state is None:
+            _random_state = self.random_state
+        else:
+            _random_state = check_random_state(random_state)
+
+        if _is_direct_solve:
+            return self._get_eigen_post_cov_choleksy(
+                self.HZ,
+                self.HX,
+                self.cov_obs,
+                inflation=_inflation,
+                n_pc=_n_pc,
+                random_state=_random_state,
+            )
+        return self._get_eigen_post_cov_iterative_krylov_subspace(
+            self.HZ,
+            self.HX,
+            self.cov_obs,
+            inflation=_inflation,
+            n_pc=_n_pc,
+            random_state=_random_state,
         )
