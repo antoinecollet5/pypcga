@@ -22,7 +22,7 @@ import covmats
 import numpy as np
 import scipy as sp
 from scipy._lib._util import check_random_state
-from scipy.sparse.linalg import LinearOperator, gmres, minres
+from scipy.sparse.linalg import LinearOperator, gmres
 
 from pypcga._utils import (
     NDArrayBool,
@@ -1265,9 +1265,7 @@ class PCGA:
             rtol=rtol,
             callback_type="legacy",
         )
-        self.loginfo(
-            "-- Number of iterations for gmres %g" % (callback.itercount())
-        )
+        self.loginfo("-- Number of iterations for gmres %g" % (callback.itercount()))
         return x
 
     def get_invA_as_linop(
