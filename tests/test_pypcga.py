@@ -5,7 +5,7 @@ import numpy as np
 import pypcga
 import pytest
 import scipy as sp
-from pyrtid.utils.types import NDArrayFloat
+from pypcga._utils import NDArrayFloat
 
 
 def forward_model(x) -> NDArrayFloat:
