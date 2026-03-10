@@ -147,7 +147,7 @@ class Model:
 
 
 if __name__ == "__main__":
-    import drawdown as dd
+    import drawdown as dd # ty: ignore[unresolved-import]
     import numpy as np
 
     s_true = np.zeros((10001,), "d")

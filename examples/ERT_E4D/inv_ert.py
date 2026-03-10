@@ -128,7 +128,7 @@ plt.close(fig)
 
 # objective values
 fig = plt.figure()
-plt.semilogy(range(len(prob.objvals)), prob.objvals, "r-")
+plt.semilogy(range(len(prob.obj_seq)), prob.obj_seq, "r-")
 plt.title("obj values over iterations")
 plt.axis("tight")
 fig.savefig("obj.png", dpi=fig.dpi)

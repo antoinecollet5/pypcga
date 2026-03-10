@@ -142,9 +142,9 @@ if __name__ == "__main__":  # for windows application
 
     fig = plt.figure()
     plt.semilogy(
-        np.linspace(1, len(prob.objvals), len(prob.objvals)), prob.objvals, "r-"
+        np.linspace(1, len(prob.obj_seq), len(prob.obj_seq)), prob.obj_seq, "r-"
     )
-    plt.xticks(np.linspace(1, len(prob.objvals), len(prob.objvals)))
+    plt.xticks(np.linspace(1, len(prob.obj_seq), len(prob.obj_seq)))
     plt.title("obj values over iterations")
     plt.axis("tight")
     fig.savefig("obj.png")

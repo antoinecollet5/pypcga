@@ -3,10 +3,10 @@ import matplotlib
 matplotlib.use("Agg")
 
 import math
-
+import covmats
 import matplotlib.pyplot as plt
 import numpy as np
-import tough
+import tough  # ty: ignore[unresolved-import]
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pypcga import PCGA
 
@@ -128,12 +128,40 @@ s_init = np.mean(s_true) * np.ones((m, 1))
 # s_init = np.copy(s_true) # you can try with s_true!
 
 # initialize
-prob = PCGA(forward_model, s_init, pts, params, s_true, obs)
-# prob = PCGA(forward_model, s_init, pts, params, s_true, obs, X = X) #if you want to
+pcga = PCGA(
+    s_init=s_init,
+    forward_model=forward_model,
+    cov_obs = covmats.CovViaDiagonal(std_obs**2),
+    obs=obs,
+    # s_true,
+    # "R": std_obs**2,
+    # "n_pc": 30,
+    # "maxiter": 10,
+    # "restol": 0.5,
+    # "matvec": "FFT",
+    # "xmin": xmin,
+    # "xmax": xmax,
+    # "N": N,
+    # "prior_std": prior_std,
+    # "prior_cov_scale": prior_cov_scale,
+    # "kernel": kernel,
+    # "post_cov": "diag",
+    # "precond": True,
+    # "LM": True,
+    # "parallel": True,
+    # "linesearch": True,
+    # "precision": 2e-3,
+    # "forward_model_verbose": True,
+    # "verbose": True,
+    # "iter_save": True,
+    # "ncores": 6,
+
+)
+# pcga = PCGA(forward_model, s_init, pts, params, s_true, obs, X = X) #if you want to
 # add your own drift X
 
 # run inversion
-s_hat, simul_obs, post_diagv, iter_best = prob.Run()
+s_hat, simul_obs, post_diagv, iter_best = pcga.run()
 
 post_std = np.sqrt(post_diagv)
 
@@ -214,8 +242,8 @@ plt.show()
 plt.close(fig)
 
 fig = plt.figure()
-plt.semilogy(np.linspace(1, len(prob.objvals), len(prob.objvals)), prob.objvals, "r-")
-plt.xticks(np.linspace(1, len(prob.objvals), len(prob.objvals)))
+plt.semilogy(np.linspace(1, len(pcga.istate.obj_seq), len(pcga.istate.obj_seq)), pcga.istate.obj_seq, "r-")
+plt.xticks(np.linspace(1, len(pcga.istate.obj_seq), len(pcga.istate.obj_seq)))
 plt.title("obj values over iterations")
 plt.axis("tight")
 fig.savefig("obj_joint.png")

@@ -8,6 +8,7 @@ Welcome to pypcga's documentation!
    :caption: Contents:
 
    installation
+   theory
    api_reference
    usage
    contributing

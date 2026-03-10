@@ -33,10 +33,11 @@ repos:
     name: ruff format
     entry: ruff format
     language: python
-    types_or: [ python, pyi]
+    types_or: [ python, pyi, jupyter]
     exclude: ^examples/
-  # - id: ty
-  #   name: ty check
-  #   entry: ty check .
-  #   language: system
-  #   types: [python]
+  - id: ty
+    name: ty check
+    entry: ty check
+    language: system
+    types_or: [python, pyi]
+    exclude: ^examples/

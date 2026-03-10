@@ -208,7 +208,6 @@ class PCGA:
         "is_line_search",
         "is_lm",
         "is_direct_solve",
-        "is_use_preconditioner",
         "is_objfun_exact",
         "max_it_lm",
         "alphamax_lm",
@@ -227,7 +226,6 @@ class PCGA:
         "post_diagv",
         "drift",
         "is_save_jac",
-        "is_use_preconditioner",
         "cov_obs_inflation_factors",
         "logger",
         "HX",
@@ -251,7 +249,6 @@ class PCGA:
         is_line_search: bool = False,
         is_lm: bool = False,
         is_direct_solve: bool = False,
-        is_use_preconditioner: bool = True,
         random_state: Optional[
             Union[int, np.random.Generator, np.random.RandomState]
         ] = np.random.default_rng(),
@@ -318,17 +315,13 @@ class PCGA:
             Whether to solve the saddle point system (Ax = b), see eq 4.53 in (add ref),
             with:
                 - the direct approach (Cholesky factorization of A), see eq (4.57) in
-            :cite:`colletAssistedHistoryMatching2024a`
+                :cite:`colletAssistedHistoryMatching2024a`
                 - or to use the alternative iterative Krylov subspace approach as
                 described in :cite`saibabaEfficientMethodsLargescale2012,
                 saibabaFastAlgorithmsGeostatistical2013`.
             Using direct solve is practical if the number of observations is around 100
             or less. Beyond, it is advise to rely on the The default is False
             (using iterative Kryloc subspace by default).
-        is_use_preconditioner : bool, optional
-            Whether to use preconditioning when using the iterative Krylov subspace
-            approach to solve the saddle point system (`is_direct_solve=False`).
-            This is highly recommended. By default True.
         random_state : Optional[ Union[int, np.random.Generator, np.random.RandomState]]
             Pseudorandom number generator state used to generate resamples.
             If `random_state` is ``None`` (or `np.random`), the
@@ -411,7 +404,6 @@ class PCGA:
                 "is_direct_solve to False!"
             )
 
-        self.is_use_preconditioner: bool = is_use_preconditioner
         self.is_objfun_exact: bool = is_objfun_exact
         self.max_it_lm = max_it_lm
         self.alphamax_lm: float = alphamax_lm
@@ -430,7 +422,7 @@ class PCGA:
         # size problem because the time to start the processes is higher than the
         # calculation time
         # this is interesting when the number of observations is large.
-        self.max_workers = max_workers_lm if is_lm else 1
+        self.max_workers = max(max_workers_lm, max_it_lm) if is_lm else 1
 
         # keep track of the internal state
         self.istate = InternalState(s_best=s_init)
@@ -455,8 +447,6 @@ class PCGA:
         # Internal state
         self.is_save_jac = is_save_jac
 
-        # Need the preconditionner if PostCovEstimation Diagonal
-        self.is_use_preconditioner = is_use_preconditioner
         self.cov_obs_inflation_factors = self.get_cov_obs_inflation_factors()
         self.logger: Optional[logging.Logger] = logger
 
@@ -895,11 +885,7 @@ class PCGA:
                 "Use Krylov subspace iterative solver "
                 "for saddle-point (cokrigging) system"
             )
-            if self.is_use_preconditioner:
-                # update the preconditioner
-                self.invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
-            else:
-                self.invA_as_linop = None
+            self.invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
 
             def internal_iteration(
                 _inflation,
@@ -1022,10 +1008,10 @@ class PCGA:
             s_hat_all[:, best_obj_idx].reshape(-1, 1),  # (n x 1)
             beta_hat_all[:, best_obj_idx].reshape(-1, 1),  # (p x 1)
             simul_obs_all[:, best_obj_idx].reshape(-1, 1),  # (N_obs x 1)
-            valid_inflations[best_obj_idx],
-            objs[best_obj_idx],
-            Q2_all[best_obj_idx],
-            cR_all[best_obj_idx],
+            float(valid_inflations[best_obj_idx]),
+            float(objs[best_obj_idx]),
+            float(Q2_all[best_obj_idx]),
+            float(cR_all[best_obj_idx]),
         )
 
     def get_sigma_cR_direct(
@@ -1267,60 +1253,21 @@ class PCGA:
         rtol: float = 1e-10,
         maxiter: int = 50,
     ) -> NDArrayFloat:
-        if invA is not None:
-            callback = Residual()
-            x, info = gmres(
-                A,
-                b,
-                restart=restart,
-                maxiter=maxiter,
-                callback=callback,
-                M=invA,
-                atol=atol,
-                rtol=rtol,
-                callback_type="legacy",
-            )
-            self.loginfo(
-                "-- Number of iterations for gmres %g" % (callback.itercount())
-            )
-            if info != 0:  # if not converged
-                callback = Residual()
-                x, info = minres(
-                    A,
-                    b,
-                    x0=x,
-                    rtol=rtol,
-                    maxiter=maxiter,
-                    callback=callback,
-                    M=invA,
-                )
-                self.loginfo(
-                    "-- Number of iterations for minres %g and info %d"
-                    % (callback.itercount(), info)
-                )
-        else:
-            # Without preconditioner
-            callback = Residual()
-            x, info = minres(A, b, rtol=rtol, maxiter=maxiter, callback=callback)
-            self.loginfo(
-                "-- Number of iterations for minres %g" % (callback.itercount())
-            )
-            if info != 0:
-                callback = Residual()
-                x, info = gmres(
-                    A,
-                    b,
-                    x0=x,
-                    maxiter=maxiter,
-                    callback=callback,
-                    atol=atol,
-                    rtol=rtol,
-                    callback_type="legacy",
-                )
-                self.loginfo(
-                    "-- Number of iterations for gmres: %g, info: %d, tol: %f"
-                    % (callback.itercount(), info, atol)
-                )
+        callback = Residual()
+        x, info = gmres(
+            A,
+            b,
+            restart=restart,
+            maxiter=maxiter,
+            callback=callback,
+            M=invA,
+            atol=atol,
+            rtol=rtol,
+            callback_type="legacy",
+        )
+        self.loginfo(
+            "-- Number of iterations for gmres %g" % (callback.itercount())
+        )
         return x
 
     def get_invA_as_linop(
@@ -1523,7 +1470,7 @@ class PCGA:
         if self.callback is not None:
             self.callback(self, s_hat=s_cur, simul_obs=simul_obs_cur, n_iter=0)
 
-        for n_iter in range(self.maxiter):  # type: ignore
+        for n_iter in range(self.maxiter):
             start = time()
 
             # TODO: make a loop for that
@@ -1614,7 +1561,7 @@ class PCGA:
                     break
 
             # To add before the previous check, otherwise
-            # obj == self.istate.objvals[-1] and the elif condition is always True
+            # obj == self.istate.obj_seq[-1] and the elif condition is always True
             # which cause an early break
             s_past = np.copy(s_cur)
 
@@ -1787,13 +1734,11 @@ class PCGA:
             # shape (n_pc + p, ns) => solve only once
             invAb_all: NDArrayFloat = PCGA.solve_cholesky(LA, b_all, p)
         else:
-            Afun = self.get_A_as_linop(HX, HZ, inflation)
-            invA_as_linop = self.get_invA_as_linop(HZ, HX, cov_obs)
             # Use iterative Krylov subspace to solve the system
-            # _tmp with shape (n_pc + p, ns) => solve only once
-            invAb_all = self._solve_iterative_subspace_krylov(
-                Afun, b=b_all, invA=invA_as_linop
-            )
+            # (n_pc + p, ns) => solve only once
+            # Solving ns Ax = b is too long so we simply use the preconditioner and it
+            # works very fine.
+            invAb_all = self.get_invA_as_linop(HZ, HX, cov_obs) @ b_all
 
         return b_all, invAb_all
 
@@ -1819,7 +1764,7 @@ class PCGA:
         self,
         is_direct_solve: Optional[bool] = None,
         inflation: Optional[float] = None,
-    ) -> covmats.CovViaDense:
+    ) -> NDArrayFloat:
         """
         Return the dense posterior covariance matrix..
 
@@ -1859,7 +1804,7 @@ class PCGA:
             inflation=_inflation,
             is_direct_solve=_is_direct_solve,
         )
-        return covmats.CovViaDense(self.Q.todense() - b_all.T @ invAb_all)
+        return self.Q.todense() - b_all.T @ invAb_all
 
     def get_eigen_post_cov(
         self,

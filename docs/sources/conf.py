@@ -26,6 +26,8 @@ import pypcga
 package_path = os.path.abspath("..")
 sys.path.insert(0, package_path)
 
+authors = "Jonghyun Harry Lee, Antoine Collet"
+
 
 def skip(app, what, name, obj, skip, options):
     if name in ["__call__"]:
@@ -121,9 +123,8 @@ master_doc = "index"
 
 # General information about the project.
 project = "pypcga"
-author = pypcga.__author__
 # pylint: disable=W0622 # Redefining built-in 'copyright'
-copyright = f"2021-{datetime.datetime.today().year}, {author}"
+copyright = f"2021-{datetime.datetime.today().year}"
 
 
 # The version info for the project you're documenting, acts as replacement
@@ -350,7 +351,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "pypcga", "pypcga Documentation", [author], 1)]
+man_pages = [(master_doc, "pypcga", "pypcga Documentation", [authors], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------
@@ -363,7 +364,7 @@ texinfo_documents = [
         master_doc,
         "pypcga",
         "pypcga Documentation",
-        author,
+        authors,
         "pypcga",
         "One line description of project.",
         "Miscellaneous",

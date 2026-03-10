@@ -8,56 +8,74 @@ pyPCGA
 
 **The complete and up to date documentation can be found here**: https://pypcga.readthedocs.io.
 
+======================
+📖 Courses and theory
+======================
+
+- Please check out the `UH CEE696 course on data assimilation <https://www2.hawaii.edu/~jonghyun/classes/S21/CEE696/>`_
+- As well as the theory description (add link).
+
+===============
+🚀 Quick start
+===============
+
+To install `pypcga`, the easiest way is through `pip`:
+
+.. code-block::
+
+    pip install pypcga
+
+Or alternatively using `conda`
+
+.. code-block::
+
+    conda install pypcga
+
+You might also clone the repository and install from source
+
+.. code-block::
+
+    pip install -e .
+
 🏗️ Complete example with supporting paper coming Q1 2026.
 
 Implemented features:
+
 - Direct inversion with Cholesky (practical up to 100 obs. TODO).
 - Exact preconditioner construction (inverse of cokriging/saddle-point matrix) using generalized eigendecomposition [Lee et al., WRR 2016, Saibaba et al, NLAA 2016]
+
 - Fast hyperparameter tuning and predictive model validation using cR/Q2 criteria [Kitanidis, Math Geol 1991] ([Lee et al., 2021 in preparation])
+
 - Fast posterior variance/std computation using exact preconditioner
 
 🏗️ Complete example with supporting paper coming Q1 2026.
 
-version 0.2 will include
-- automatic covariance model parameter calibration with nearshore application example
-- link with [FMM](https://github.com/ruoxi-wang/PBBFMM3D) and HMatrix to support unstructured grids
-
-# Installation
-
-```
-python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
-```
-
-# Courses
-
-* [UH CEE696 course on data assimilation](https://www2.hawaii.edu/~jonghyun/classes/S21/CEE696/)
 
 # Example Notebooks
 
 1D linear inversion example below will be helpful to understand how pyPCGA can be implemented. Please check Google Colab examples.
 
-* [1D linear inversion example](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/linear_inverse_problem_pumping_history_identification.ipynb) (from Stanford 362G course) [Google Colab example](https://colab.research.google.com/drive/13lpxTYgNxOc1gYm2bMvIaTpGFejTVX0r?usp=sharing)
+- `1D linear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/linear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example <https://colab.research.google.com/drive/13lpxTYgNxOc1gYm2bMvIaTpGFejTVX0r?usp=sharing>`_
 
-* [1D nonlinear inversion example](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/nonlinear_inverse_problem_pumping_history_identification.ipynb) (from Stanford 362G course) [Google Colab example](https://colab.research.google.com/drive/1NPX-q_os5_kVAyFBDOhX_BJJMWUti0u_?usp=sharing)
+- `1D nonlinear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/nonlinear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example <https://colab.research.google.com/drive/1NPX-q_os5_kVAyFBDOhX_BJJMWUti0u_?usp=sharing>`_
 
-* [Hydraulic conductivity estimation example using USGS-FloPy (MODFLOW)](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/modflow_flopy/inversion_modflow.ipynb) [Lee and Kitanidis, 2014] [Google Colab example](https://colab.research.google.com/drive/1djVDZNjh390czXlzBbu7FvRQne9mf8SP?usp=sharing)
+- `Hydraulic conductivity estimation example using USGS-FloPy (MODFLOW) <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/modflow_flopy/inversion_modflow.ipynb>`_ [Lee and Kitanidis, 2014] `Google Colab example <https://colab.research.google.com/drive/1djVDZNjh390czXlzBbu7FvRQne9mf8SP?usp=sharing>`_
 
-* [Tracer tomography example using Crunch](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tracer_tomography_ade_crunch/inversion_example_advection_diffusion_crunchtope.ipynb) (with Mahta Ansari from UIUC Druhan Lab)
+- `Tracer tomography example using Crunch <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tracer_tomography_ade_crunch/inversion_example_advection_diffusion_crunchtope.ipynb>`_ (with Mahta Ansari from UIUC Druhan Lab)
 
-* [Bathymetry estimation example using STWAVE](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/stwave_duck/inversion_stwave.ipynb) (with USACE-ERDC-CHL)
+- `Bathymetry estimation example using STWAVE <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/stwave_duck/inversion_stwave.ipynb>`_ (with USACE-ERDC-CHL)
 
-* [Permeability estimation example using TOUGH2](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tough_heat/joint_inversion_example_tough.ipynb) (with Amalia Kokkianki, USFCA)
+- `Permeability estimation example using TOUGH2 <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tough_heat/joint_inversion_example_tough.ipynb>`_ (with Amalia Kokkianki, USFCA)
 
-* [Electrical conductivity estimation example using magnetotelluric (MT) survey with MARE2DEM](https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/mare2dem_MT/inversion_mare2dem.ipynb) (with Niels Grobbe, UHM)
+- `Electrical conductivity estimation example using magnetotelluric (MT) survey with MARE2DEM <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/mare2dem_MT/inversion_mare2dem.ipynb>`_ (with Niels Grobbe, UHM)
 
-* [DNAPL plume estimation using hydraulic head, self-potential (SP) and partitioning tracer data](https://github.com/XueyuanK/DNAPL_Inv) (with Xueyuan Kang et al.)
+- `DNAPL plume estimation using hydraulic head, self-potential (SP) and partitioning tracer data <https://github.com/XueyuanK/DNAPL_Inv>`_ (with Xueyuan Kang et al.)
 
-* [ERT example using E4D](https://github.com/jonghyunharrylee/pyPCGA/tree/master/examples/ERT_E4D) will be completed soon.
+- `ERT example using E4D <https://github.com/jonghyunharrylee/pyPCGA/tree/master/examples/ERT_E4D>`_ will be completed soon.
 
-* MODFLOW-USG/SEAWAT/MODFLOW6 examples coming soon!
-
-
-# References
+==================
+📚 Main References
+==================
 
 - J Lee, H Yoon, PK Kitanidis, CJ Werth, AJ Valocchi, "Scalable subsurface inverse modeling of huge data sets with an application to tracer concentration breakthrough data from magnetic resonance imaging", Water Resources Research 52 (7), 5213-5231
 
@@ -67,7 +85,9 @@ python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
 
 - PK Kitanidis, J Lee, Principal Component Geostatistical Approach for large‐dimensional inverse problems, WRR 50 (7), 5428-5443
 
-# Applications
+================
+💻 Applications
+================
 
 - T. Kadeethum, D. O'Malley, JN Fuhg, Y. Choi, J. Lee, HS Viswanathan and N. Bouklas, A framework for data-driven solution and parameter estimation of PDEs using conditional generative adversarial networks, Nature Computational Science, 819–829, 2021
 
@@ -79,19 +99,18 @@ python -m pip install git+https://github.com/jonghyunharrylee/pyPCGA.git
 
 - S. Fakhreddine, J Lee, PK Kitanidis, S Fendorf, M Rolle, Imaging Geochemical Heterogeneities Using Inverse Reactive Transport Modeling: an Example Relevant for Characterizing Arsenic Mobilization and Distribution, Advances in Water Resources, 88: 186-197, 2016
 
-
 ===========
 🔑 Credits
 ===========
 
-`pypcga` is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR `Ike Wai project.
+**pypcga** is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR `Ike Wai project.
 
 Code contributors include:
 
-* Jonghyun Harry Lee (add github)
-* Matthew Farthing (add github)
-* Ty Hesser (STWAVE example) (add github)
-* Antoine COLLET (add github)
+- `Jonghyun Harry Lee <https://github.com/jonghyunharrylee>`_
+- `Matthew Farthing <https://github.com/mfarthin>`_
+- `Ty Hesser <https://github.com/Mahtaw>`_
+- `Antoine COLLET <https://github.com/antoinecollet5>`_
 
 ===========
 🔑 License
@@ -128,12 +147,6 @@ For questions, suggestions, or contributions, you can reach out via:
 
 We welcome contributions!
 
-=============
-📚 References
-=============
-
-TODO
-
 * Free software: SPDX-License-Identifier: BSD-3-Clause
 
 
@@ -164,7 +177,7 @@ TODO
     :target: https://pypcga.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
 
-.. |Coverage| image:: https://codecov.io/gh/antoinecollet5/pypcga/branch/master/graph/badge.svg?token=ISE874MMOF
+.. |Coverage| image:: https://codecov.io/gh/antoinecollet5/pypcga/graph/badge.svg?token=WY1765AKTB
     :target: https://codecov.io/gh/antoinecollet5/pypcga
     :alt: Coverage
 

@@ -5,22 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pypcga"
 dynamic = ["version"]
-authors = [{ name = "Antoine Collet", email = "antoinecollet5@gmail.com" }]
+authors = [{ name = "Jonghyun Harry Lee", email = "jonghyun.harry.lee@hawaii.edu"}, { name = "Antoine Collet", email = "antoinecollet5@gmail.com" }]
 readme = "README.rst"
-description = "Reactive Transport Inversion demonstrator written in Python."
+description = "A python implementation of the Principal Component Geostatistical Approach (PCGA) for large scale inversion."
 keywords = [
     "Inversion",
-    "Gradient descent",
-    "Reactive transport",
+    "Eigen factorization",
+    "PCGA",
     "Parameters estimation",
-    "Adjoint State",
-    "Demonstrator",
+    "Large Scale",
 ]
 license = { file = "LICENSE" }
+
 dependencies = [
-    "numpy>=1.2,<2.0",
+    "numpy>=1.2",
     "scipy>=1.12.2",
+    "covmats>=0.2.0"
 ]
+
 requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -41,6 +43,34 @@ Documentation = "https://pypcga.readthedocs.io/en/latest/"
 Repository = "https://github.com/antoinecollet5/pypcga"
 Issues = "https://github.com/antoinecollet5/pypcga/issues"
 Changelog = "https://github.com/antoinecollet5/pypcga/blob/master/CHANGELOG.rst"
+
+[project.optional-dependencies]
+all = ['covmats[install, lint, tests, examples, docs]']
+docs = [
+    "covmats[examples]",
+    "sphinx<9",
+    "nbsphinx",
+    "nbsphinx-link>=1.3.1",
+    "jupyter_sphinx>=0.3.2",
+    "sphinx-jsonschema>=1.15",
+    "pygments>=2.11.1",
+    "pydata-sphinx-theme",
+    "sphinxcontrib-bibtex",
+    "sphinx_math_dollar",
+    "jupytext",
+]
+tests = [
+    "twine==1.14.0",
+    "pytest",
+    "pytest-runner",
+    "pytest-cov",
+    "pytest-cookies",
+    "coverage",
+]
+examples = ["matplotlib", "Ipykernel", "Ipython", "nested_grid_plotter"]
+lint = ["pre-commit", "codespell>=2.1.0", "ruff", "ty"]
+install = ["pip", "wheel"]
+
 
 [tool.setuptools]
 # packages = ["pypcga"]
@@ -113,3 +143,7 @@ logging-format-style = "fstr"
 skip = "*.pyc,*.gif,*.png,*.jpg,*.ply, ./bibliography.bib,*.ipynb"
 quiet-level = 3
 ignore-words-list = "lod,byteorder,flem,parm,revered,inout,nd,WEL,wel,shat,ist"
+
+[tool.ty.rules]
+too-many-positional-arguments = "ignore"
+missing-argument = "ignore"

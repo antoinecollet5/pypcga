@@ -5,11 +5,11 @@ Credits
 Development Lead
 ----------------
 
-* Jonghyun Harry Lee (original author)
-* Antoine Collet (refactoring, packaging and maintenance)
+- `Jonghyun Harry Lee <https://github.com/jonghyunharrylee>`_ (original author)
+- `Antoine COLLET <https://github.com/antoinecollet5>`_ (refactoring, improvement, packaging, documentation and maintenance)
 
 Contributors
 ------------
 
-* Matthew Farthing
-* Ty Hesser (STWAVE example)
+* `Matthew Farthing <https://github.com/mfarthin>`_
+* `Ty Hesser <https://github.com/Mahtaw>`_ (STWAVE example)
