@@ -867,6 +867,7 @@ class PCGA:
         beta_all = np.zeros((p, self.n_internal_loops), dtype=np.float64)
         s_hat_all = np.zeros((m, self.n_internal_loops), dtype=np.float64)
         Q2_all = np.zeros((self.n_internal_loops), dtype=np.float64)
+        # TODO
         cR_all = np.zeros((self.n_internal_loops), dtype=np.float64)
 
         # Call a different internal iteration routine to solve the linear system.
@@ -951,13 +952,6 @@ class PCGA:
         # 6.67 in kitanidisIntroductionGeostatisticsApplications1997.
         Q2_all[:] = np.dot(b[:n].T, xi_all) / (n - p)
 
-        # TODO: where is that written ?
-        # 6.68 in kitanidisIntroductionGeostatisticsApplications1997.
-        # instead of the square kriging error, 8%, its average value, o^. Because we
-        # have imposed requirement (6.67), 0% is a good measure of <$f and is also
-        # less affected by randomness. Thus, we may introduce the requirement
-        # cR_all[:, :] = Q2_all * np.exp(np.log(tmp_cR).sum(axis=1) / (n - p))
-
         # if lm is off, this will always be True
         is_valid_s_hat = np.invert(self.is_s_violate_lm_bounds(s_hat_all))
 
@@ -1014,181 +1008,6 @@ class PCGA:
             float(cR_all[best_obj_idx]),
         )
 
-    def get_sigma_cR_direct(
-        self,
-        HZ: NDArrayFloat,
-        U_data: NDArrayFloat,
-        n_obs: int,
-        n_pc: int,
-        p: int,
-        inflation: float,
-    ) -> NDArrayFloat:
-        # Matrix handle for sqrt of Generalized Data Covariance
-
-        # TODO: make this work for large matrices
-        # Compute eig(P*(HQHT+R)*P) approximately by svd(P*HZ)**2 + R if
-        # R is single number
-
-        class SqrtGDCovFun(LinearOperator):
-            def __init__(self) -> None:
-                """Initialize the instance."""
-                super().__init__(shape=(n_obs, n_pc), dtype=np.float64)
-
-            def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
-                # P*HZ*x = ((I-(U_data*U_data.T))*HZ)*x '''
-                tmp = np.dot(HZ, x)
-                return tmp - np.dot(U_data, np.dot(U_data.T, tmp))
-
-            def _rmatvec(self, x: NDArrayFloat) -> NDArrayFloat:
-                return np.dot(HZ.T, x) - np.dot(
-                    HZ.T, np.dot(U_data, np.dot(U_data.T, x))
-                )
-
-        # Compute eig(P*(HQHT+R)*P) approximately by svd(P*(HZ*HZ' + R)*P)
-        # need to do for each alpha[i]*R
-
-        if self.Q.n_pc <= n_obs - p:
-            k = self.Q.n_pc - 1
-            _maxiter = n_obs - p
-        else:
-            k = n_obs - p
-            _maxiter = self.Q.n_pc
-
-        # self.loginfo(
-        #     "eig. val. of generalized data covariance : "
-        #     "%f se (%8.2e, %8.2e, %8.2e)"
-        #     % (time() - start2, sigma_cR[0], sigma_cR.min(), sigma_cR.max())
-        # )
-        # # of generalized data covariance : %f s (%8.2e, %8.2e, %8.2e)"
-        # # % (start2 - start1, time()-start2,sigma_cR[0],sigma_cR.min(),
-        # # sigma_cR.max()))
-
-        return sp.sparse.linalg.svds(
-            SqrtGDCovFun(),
-            k=k,
-            which="LM",
-            maxiter=_maxiter,
-            return_singular_vectors=False,
-            random_state=self.random_state,
-        )
-
-    # def get_tmp_cR(
-    #     self, inflation, sigma_cR: NDArrayFloat
-    # ) -> NDArrayFloat:
-    #     n = self.d_dim
-    #     p = self.drift.beta_dim
-    #     R = self.cov_obs
-
-    #     tmp_cR = np.zeros((n - p, 1), np.float64)
-
-    #     if R.size == 1:  # single observation variance
-    #         # self.loginfo(f"alpha[{i}] = {alpha[i]}")
-    #         tmp_cR[:] = inflation * R  # scalar placed in all meshes
-    #         tmp_cR[: sigma_cR.shape[0]] = (
-    #             tmp_cR[: sigma_cR.shape[0]] + (sigma_cR[:, np.newaxis]) ** 2
-    #         )
-    #     elif R.ndim == 1:  # diagonal covariance matrix
-    #         tmp_cR = np.multiply(inflation, R[:-p])
-
-    #         # self.loginfo(f"tmp_cR.shape = {tmp_cR.shape}")
-    #         # self.loginfo(f"tmp_cR.shape = {tmp_cR.shape}")
-
-    #         uniqueR = np.unique(R)
-    #         lenR = len(uniqueR)
-    #         lenRi = int((n - sigma_cR.shape[0]) / lenR)
-    #         strtidx = sigma_cR.shape[0]
-    #         strtidx = +0  # to remove, Antoine 22/09/2024
-    #         # self.loginfo(f"lenRi = {lenRi}")
-
-    #         # # this loop works only if self.is_lm == True, otherwise, alpha is a
-    #         # scalar, there is an issue somewhere.
-    #         for iR in range(lenR):
-    #             tmp_cR[strtidx : strtidx + lenRi] = (
-    #                 alpha[min(iR, alpha.size - 1)] * uniqueR[iR]
-    #             )
-    #             strtidx = strtidx + lenRi
-    #         tmp_cR[strtidx:] = alpha[min(iR, alpha.size - 1)] * uniqueR[iR]
-    #     else:  # symmetrical square covariance matrix
-    #         pass
-
-    #     tmp_cR[tmp_cR <= 0] = 1.0e-16  # temporary fix for zero tmp_cR
-
-    #     return tmp_cR
-
-    # def get_tmp_cR_iterative(self) -> NDArrayFloat:
-
-    #     n = self.d_dim
-    #     p = self.drift.beta_dim
-    #     R = self.cov_obs
-
-    #     # model validation, predictive diagnostics cR/Q2
-    #     if R.shape[0] == 1:
-    #         tmp_cR = np.zeros((n - p, 1), "d")
-    #         tmp_cR[:] = np.multiply(alpha[i], R)
-    #         tmp_cR[: sigma_cR.shape[0]] = (
-    #             tmp_cR[: sigma_cR.shape[0]] + (sigma_cR[:, np.newaxis]) ** 2
-    #         )
-    #     else:
-    #         # need to find efficient way to compute cR once
-    #         # approximation
-    #         def mv(v):
-    #             # P*(HZ*HZ.T + R)*P*x = P = (I-(U_data*U_data.T))
-    #             # debug_here()
-    #             Pv = v - np.dot(U_data, np.dot(U_data.T, v))  # P * v : n by 1
-    #             RPv = np.multiply(
-    #                 alpha[i], np.multiply(R.reshape(v.shape), Pv)
-    #             )  # alpha*R*P*v : n by 1
-    #             PRPv = RPv - np.dot(U_data, np.dot(U_data.T, RPv))  # P*R*P*v : n by 1
-    #             HQHTPv = np.dot(HZ, np.dot(HZ.T, Pv))  # HQHTPv : n by 1
-    #             PHQHTPv = HQHTPv - np.dot(
-    #                 U_data, np.dot(U_data.T, HQHTPv)
-    #             )  # P*HQHT*P*v
-    #             return PHQHTPv + PRPv
-
-    #         def rmv(v):
-    #             return mv(v)  # symmetric matrix
-
-    #         # Matrix handle for Generalized Data Covariance
-    #         sqrtGDCovfun = LinearOperator((n, n), matvec=mv, rmatvec=rmv, dtype="d")
-
-    #         if n_pc < n - p:
-    #             k: int = n_pc
-    #             maxiter: int = n - p
-    #         elif n_pc == n - p:
-    #             k = n_pc - 1
-    #             maxiter = n - p
-    #         else:
-    #             k = n - p
-    #             maxiter = n_pc
-
-    #         sigma_cR = svds(
-    #             sqrtGDCovfun,
-    #             k=k,
-    #             which="LM",
-    #             maxiter=maxiter,
-    #             return_singular_vectors=False,
-    #             random_state=self.random_state,
-    #         )
-
-    #         tmp_cR = np.zeros((n - p, 1), "d")
-    #         tmp_cR[:] = np.multiply(alpha[i], R[:-p]).reshape(
-    #             -1, 1
-    #         )  # TODO: remove the reshape
-
-    #         tmp_cR[: sigma_cR.shape[0]] = sigma_cR[:, np.newaxis]
-
-    #         uniqueR = np.unique(R)
-    #         lenR = len(uniqueR)
-    #         lenRi = int((n - sigma_cR.shape[0]) / lenR)
-    #         strtidx = sigma_cR.shape[0]
-    #         for iR in range(lenR):
-    #             tmp_cR[strtidx : strtidx + lenRi] = (
-    #                 alpha[min(iR, alpha.size - 1)] * uniqueR[iR]
-    #             )
-    #             strtidx = strtidx + lenRi
-    #         tmp_cR[strtidx:] = alpha[min(iR, alpha.size - 1)] * uniqueR[iR]
-
-    #     tmp_cR[tmp_cR <= 0] = 1.0e-16  # temporary fix for zero tmp_cR
 
     def internal_iteration_direct(
         self,
