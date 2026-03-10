@@ -45,9 +45,9 @@ Issues = "https://github.com/antoinecollet5/pypcga/issues"
 Changelog = "https://github.com/antoinecollet5/pypcga/blob/master/CHANGELOG.rst"
 
 [project.optional-dependencies]
-all = ['covmats[install, lint, tests, examples, docs]']
+all = ['pypcga[install, lint, tests, examples, docs]']
 docs = [
-    "covmats[examples]",
+    "pypcga[examples]",
     "sphinx<9",
     "nbsphinx",
     "nbsphinx-link>=1.3.1",
