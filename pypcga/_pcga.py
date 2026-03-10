@@ -1008,7 +1008,6 @@ class PCGA:
             float(cR_all[best_obj_idx]),
         )
 
-
     def internal_iteration_direct(
         self,
         HZ: NDArrayFloat,
