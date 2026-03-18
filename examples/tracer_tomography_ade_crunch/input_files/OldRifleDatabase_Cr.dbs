@@ -1,6 +1,6 @@
 'temperature points' 8   0.  25.  60. 100. 150. 200. 250. 300.
 'Debye-Huckel adh'   0.4939  0.5114 0.5465 0.5995 0.6855 0.7994 0.9593 1.2180
-'Debye-Huckel bdh'   0.3253  0.3288 0.3346 0.3421 0.3525 0.3639 0.3766 0.3925 
+'Debye-Huckel bdh'   0.3253  0.3288 0.3346 0.3421 0.3525 0.3639 0.3766 0.3925
 'Debye-Huckel bdt'   0.0374  0.0410 0.0440 0.0460 0.0470 0.0470 0.0340 0.0000
 'H2O' 3.0  0.0    18.0153
 'Ag+' 2.5  1.0   107.8682
@@ -3153,9 +3153,9 @@
 'Ferrihydrite_DIRB' 20.8200 7 -0.2083333 'Acetate' -1.925 'H+' -0.0333333 'NH4+' 0.03333333 'C5H7O2NFe' 1.0 'Fe++' 0.25 'HCO3-' 1.6 'H2O'   1.5252     0.5345    -0.6000    -1.6142    -2.6004    -3.3990   500.0000   500.0000    88.8537
 'Magnetite_Cr'   44.5240  5   -10.66666666666667 'H+'    -0.33333333333333 'CrO4--'    3.00000000000000 'Fe+++'    0.33333333333333 'Cr+++'    5.33333333333333 'H2O'   13.8989    10.4724     6.4420     2.6912    -1.1245    -4.3319    -7.2074    -9.9523   231.5386
 'Magnetite_Cr53'   44.5240  5   -10.66666666666667 'H+'    -0.33333333333333 'Cr53O4--'    3.00000000000000 'Fe+++'    0.33333333333333 'Cr53+++'    5.33333333333333 'H2O'   13.8989    10.4724     6.4420     2.6912    -1.1245    -4.3319    -7.2074    -9.9523   231.5386
-'UO2(s)' 500.00  7  1.000 'UO2++'  0.067 'NH4+'  0.417 'Acetate'   0.8 'H2O'  -0.0667 'C5H7O2NFe'  -0.5 'HCO3-'  -2.15 'H+' 500.00  -9.00  500.00  500.00  500.00 500.00 500.00  500.00  270.0277 
 'UO2(s)' 500.00  7  1.000 'UO2++'  0.067 'NH4+'  0.417 'Acetate'   0.8 'H2O'  -0.0667 'C5H7O2NFe'  -0.5 'HCO3-'  -2.15 'H+' 500.00  -9.00  500.00  500.00  500.00 500.00 500.00  500.00  270.0277
-'C5H7O2NNO3(s)'  3125.0  1  1.000  'C5H7O2NFe'  500.0 -15.0  500.00  500.00  500.00 500.00  500.00 500.00 113.0 
+'UO2(s)' 500.00  7  1.000 'UO2++'  0.067 'NH4+'  0.417 'Acetate'   0.8 'H2O'  -0.0667 'C5H7O2NFe'  -0.5 'HCO3-'  -2.15 'H+' 500.00  -9.00  500.00  500.00  500.00 500.00 500.00  500.00  270.0277
+'C5H7O2NNO3(s)'  3125.0  1  1.000  'C5H7O2NFe'  500.0 -15.0  500.00  500.00  500.00 500.00  500.00 500.00 113.0
 'C5H7O2NFe(s)'  3125.0  1  1.000  'C5H7O2NFe'  500.0 -15.0  500.00  500.00  500.00 500.00  500.00 500.00 113.0
 'C5H7O2NSO4(s)' 3125.0  1  1.000  'C5H7O2NSO4'  500.0 -15.0  500.00  500.00  500.00 500.00  500.00 500.00 113.0
 'C5H7O2NCH4(s)' 3125.0  1  1.000  'C5H7O2NCH4'  500.0 -15.0  500.00  500.00  500.00 500.00  500.00 500.00 113.0
@@ -3196,22 +3196,22 @@ Begin surface complexation
 '>FeOFeOHFe(OH)3_w' 4 -2.0 'H+' 1.0 'Fe++' 1.0 '>FeOHFe(OH)3_weak' 1.0 'H2O'  500.0 10.89 500.0 500.0 500.0 500.0 500.0 500.0
 End of surface complexation
 Begin aqueous kinetics
-Sulfate_reduction 1 'monodbiomass' 8 -0.1155 'SO4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.2424 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S(aq)'  500.00 
+Sulfate_reduction 1 'monodbiomass' 8 -0.1155 'SO4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.2424 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S(aq)'  500.00
 9000.0  2 'tot_Acetate' 5.0E-03 'tot_SO4--' 1.0E-03
-   'Inhibition' 0 
-Sulfate34_reduction 1 'monodbiomass' 8 -0.1155 'S34O4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.2424 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S34(aq)'  500.00 
+   'Inhibition' 0
+Sulfate34_reduction 1 'monodbiomass' 8 -0.1155 'S34O4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.2424 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S34(aq)'  500.00
 9000.0  2 'tot_Acetate' 5.0E-03 'tot_S34O4--' 1.0E-03
-   'Inhibition' 0 
-Methanogenesis 1 'monodbiomass' 7 -0.125 'Acetate' -0.1231 'H+' -0.0019 'NH4+' 0.0019 'C5H7O2NCH4' 0.0057 'H2O' 0.12025 'CO2(aq)' 0.12025 'Methane(aq)'  500.00 
+   'Inhibition' 0
+Methanogenesis 1 'monodbiomass' 7 -0.125 'Acetate' -0.1231 'H+' -0.0019 'NH4+' 0.0019 'C5H7O2NCH4' 0.0057 'H2O' 0.12025 'CO2(aq)' 0.12025 'Methane(aq)'  500.00
 9000.0  1 'tot_Acetate' 1.5E-05
-   'Inhibition' 0 
-Sulfate_reduction_nogrow 1 'monodbiomass' 6 -0.125 'SO4--' -0.125 'Acetate' -0.375 'H+' 0.345 'H2O' 0.250 'CO2(aq)' 0.125 'H2S(aq)'  500.00 
+   'Inhibition' 0
+Sulfate_reduction_nogrow 1 'monodbiomass' 6 -0.125 'SO4--' -0.125 'Acetate' -0.375 'H+' 0.345 'H2O' 0.250 'CO2(aq)' 0.125 'H2S(aq)'  500.00
 25000.0  2 'tot_Acetate' 5.0E-05 'tot_SO4--' 1.0E-05
-   'Inhibition' 0 
+   'Inhibition' 0
 End of aqueous kinetics
-Best Value from Williams-Wilkins Column:  Sulfate_reduction 1 'monodbiomass' 8 -0.1155 'SO4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.345 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S(aq)'  500.00 
+Best Value from Williams-Wilkins Column:  Sulfate_reduction 1 'monodbiomass' 8 -0.1155 'SO4--' -0.125 'Acetate' -0.3522 'H+' -0.0038 'NH4+' 0.0038 'C5H7O2NSO4' 0.345 'H2O' 0.231 'CO2(aq)' 0.1155 'H2S(aq)'  500.00
 7000.0  2 'tot_Acetate' 5.0E-05 'tot_SO4--' 1.0E-05
-   'Inhibition' 0 
+   'Inhibition' 0
 Begin mineral kinetics
 +----------------------------------------------------
 C5H7O2NFe(s)
@@ -3219,49 +3219,49 @@ C5H7O2NFe(s)
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 C5H7O2NNO3(s)
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +---------------------------------------------------
 C5H7O2NSO4(s)
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +---------------------------------------------------
 C5H7O2NCH4(s)
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Annite
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Chamosite
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Magnetite
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Magnetite_Cr
   label = default
@@ -3347,28 +3347,28 @@ FeS(am)
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 FeS34(am)
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 ZnS
   label = default
   type = tst
   rate(25C) = -6.00   !cis
   activation = 15.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Fe(OH)3
   label = default
   type = PrecipitationOnly
   rate(25C) = -11.25   !cis
   activation = 0.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 Fe(OH)3H2S
   label = default
@@ -3405,14 +3405,14 @@ Goethite
   type = tst
   rate(25C) = -11.25   !cis
   activation = 0.0  (kcal/mole)
-  dependence :  
+  dependence :
 +----------------------------------------------------
 Goethite_DIRB
   label = DIRB
   type = MonodBiomass
   rate(25C) = -11.25   !cis
   activation = 0.0  (kcal/mole)
-  monod_terms : self 0.0005 tot_Acetate 1.0E-3  
+  monod_terms : self 0.0005 tot_Acetate 1.0E-3
   1  0.000 -1
 +----------------------------------------------------
 Ferrihydrite_DIRB
@@ -3457,7 +3457,7 @@ Fe(OH)3
   type = irreversible
   rate(25C) = -11.25   !cis
   activation = 0.0  (kcal/mole)
-  dependence : 
+  dependence :
 +----------------------------------------------------
 S32
   label = default
@@ -3521,7 +3521,7 @@ CalciteRifle
   type  = PrecipitationOnly
   rate(25C) = -6.19
   activation = 0.0  (kcal/mole)
-  dependence :  
+  dependence :
   AffinityDependence =  2.00  1.00  1.00
   1.0 Calcite  =  1.0 Ca+2 + 1.0 CO3--
 +---------------------------------------------------
@@ -3530,7 +3530,7 @@ Calcite44Rifle
   type  = PrecipitationOnly
   rate(25C) = -6.19
   activation = 0.0  (kcal/mole)
-  dependence : 
+  dependence :
   AffinityDependence =  2.00  1.00  1.00
   1.0 Calcite  =  1.0 Ca+2 + 1.0 CO3--
 +---------------------------------------------------
@@ -3547,7 +3547,7 @@ Calcite44Rifle
   type  = irreversible
   rate(25C) = -6.19
   activation = 0.0  (kcal/mole)
-  dependence : 
+  dependence :
   1.0 Calcite  =  1.0 Ca+2 + 1.0 CO3--
 +---------------------------------------------------
 CalciteRifle
@@ -3655,16 +3655,16 @@ End surface complexation parameters
 'Goethite_DIRB' 20.8200 7 -0.25 'Acetate' -1.95 'H+' -0.05 'NH4+' 0.05 'C5H7O2N' 1.0 'Fe++' 0.25 'HCO3-' 1.65 'H2O'   1.5252     0.5345    -0.6000    -1.6142    -2.6004    -3.3990   500.0000   500.0000    88.8537
 
 Sulfate_reduction 1 'monod' 4 -1.0 'SO4--' -1.0 'Acetate' 2.0 'HCO3-' 1.0 'HS-'  500.00
-0.628  2 'tot_Acetate' 1.0E-04 'tot_SO4--' 1.0E-05 
+0.628  2 'tot_Acetate' 1.0E-04 'tot_SO4--' 1.0E-05
    'Inhibition' 1 'Fe++' 1.25E-5
 
 Sulfate34_reduction 1 'monod' 4 -1.0 'S34O4--' -1.0 'Acetate' 2.0 'HCO3-' 1.0 'HS34-'  500.00
-0.628  2 'tot_Acetate' 1.0E-04 'tot_S34O4--' 1.0E-05 
+0.628  2 'tot_Acetate' 1.0E-04 'tot_S34O4--' 1.0E-05
    'Inhibition' 1 'Fe++' 1.25E-5
 
 Uranium_reduction 1 'monod' 8 -0.3 'UO2++' -0.125 'Acetate' -0.24 'H2O' -0.02 'NH3(aq)' 0.02 'C5H7O2N' 0.3 'Uraninite(aq)' 0.15 'HCO3-' 0.625 'H+' 500.00
 2.58E-3 2 'tot_UO2++' 0.1E-6 'tot_Acetate' 1.0E-4
-   'Inhibition' 1 'tot_HS-' 2.0E-6   
+   'Inhibition' 1 'tot_HS-' 2.0E-6
 
 
 '>FeOGoethite-_w' 2 -1.0 'H+' 1.0 '>FeOHGoethite_weak' 500.0 9.51 500.0 500.0 500.0 500.0 500.0 500.0

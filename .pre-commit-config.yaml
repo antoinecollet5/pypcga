@@ -1,0 +1,43 @@
+#!/bin/bash
+
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.3.0
+  hooks:
+    - id: check-json
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
+- repo: local
+  hooks:
+  - id: codespell
+    name: codespell
+    description: Checks for common misspellings in text files.
+    entry: codespell
+    language: python
+    types: [python]
+    args: [
+      "pypcga docs tests",
+      "*.py *.rst *.md",
+    ]
+    exclude: ^examples/
+
+  - id: ruff check
+    name: ruff check
+    entry: ruff check
+    language: python
+    types_or: [ python, pyi]
+    args: [--fix, --exit-non-zero-on-fix]
+    exclude: ^examples/
+  - id: ruff-format --check
+    name: ruff format
+    entry: ruff format
+    language: python
+    types_or: [ python, pyi, jupyter]
+    exclude: ^examples/
+  - id: ty
+    name: ty check
+    entry: ty check
+    language: system
+    types_or: [python, pyi]
+    exclude: ^examples/
