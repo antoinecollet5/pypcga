@@ -147,3 +147,7 @@ ignore-words-list = "lod,byteorder,flem,parm,revered,inout,nd,WEL,wel,shat,ist"
 [tool.ty.rules]
 too-many-positional-arguments = "ignore"
 missing-argument = "ignore"
+
+# skip assert warnings with codacy
+[tool.bandit]
+skips = ["B101"]
