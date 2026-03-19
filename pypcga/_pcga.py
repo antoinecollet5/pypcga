@@ -1083,7 +1083,7 @@ class PCGA:
             rtol=rtol,
             callback_type="legacy",
         )
-        self.loginfo("-- Number of iterations for gmres %g" % (callback.itercount()))
+        # self.loginfo("-- Number of iterations for gmres %g" % (callback.itercount()))
         return x
 
     def get_invA_as_linop(
@@ -1436,7 +1436,9 @@ class PCGA:
             " (should be as close to 1.0 as possible.)"
         )
         self.loginfo(
-            f"- Final cR = {self.istate.best_cR:.3e} (should be as small as possible.)"
+            # f"- Final cR = {self.istate.best_cR:.3e}
+            # (should be as small as possible.)"
+            "- Final cR = Not implemented (planned for v0.3.0)"
         )
 
         return (
