@@ -23,17 +23,17 @@ pyPCGA
 - Fast hyperparameter tuning and predictive model validation using cR/Q2 criteria [Kitanidis, Math Geol 1991]
 - Fast posterior variance/std computation using exact preconditioner
 
-======================
+=====================
 💻 Example Notebooks
-======================
+=====================
 
 1D linear inversion example below will be helpful to understand how pyPCGA can be implemented. Please check Google Colab examples.
 
-- `1D linear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/linear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example <https://colab.research.google.com/drive/13lpxTYgNxOc1gYm2bMvIaTpGFejTVX0r?usp=sharing>`_
+- `1D linear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/linear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example 1 <https://colab.research.google.com/drive/13lpxTYgNxOc1gYm2bMvIaTpGFejTVX0r?usp=sharing>`_
 
-- `1D nonlinear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/nonlinear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example <https://colab.research.google.com/drive/1NPX-q_os5_kVAyFBDOhX_BJJMWUti0u_?usp=sharing>`_
+- `1D nonlinear inversion example <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/pumping_history_identification/nonlinear_inverse_problem_pumping_history_identification.ipynb>`_ (from Stanford 362G course) `Google Colab example 2 <https://colab.research.google.com/drive/1NPX-q_os5_kVAyFBDOhX_BJJMWUti0u_?usp=sharing>`_
 
-- `Hydraulic conductivity estimation example using USGS-FloPy (MODFLOW) <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/modflow_flopy/inversion_modflow.ipynb>`_ [Lee and Kitanidis, 2014] `Google Colab example <https://colab.research.google.com/drive/1djVDZNjh390czXlzBbu7FvRQne9mf8SP?usp=sharing>`_
+- `Hydraulic conductivity estimation example using USGS-FloPy (MODFLOW) <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/modflow_flopy/inversion_modflow.ipynb>`_ [Lee and Kitanidis, 2014] `Google Colab example 3 <https://colab.research.google.com/drive/1djVDZNjh390czXlzBbu7FvRQne9mf8SP?usp=sharing>`_
 
 - `Tracer tomography example using Crunch <https://github.com/jonghyunharrylee/pyPCGA/blob/master/examples/tracer_tomography_ade_crunch/inversion_example_advection_diffusion_crunchtope.ipynb>`_ (with Mahta Ansari from UIUC Druhan Lab)
 
@@ -90,7 +90,7 @@ Apply nice parameters for the plots
 
     ngp.apply_nice_default_rc_params()
 
-Create some :py:class:`logging.Logger` instances to illustrate how to use them in a complex workflow
+Create some **logging.Logger** instances to illustrate how to use them in a complex workflow
 
 .. code-block:: python
 
@@ -102,7 +102,7 @@ Create some :py:class:`logging.Logger` instances to illustrate how to use them i
     main_logger.info("This is the main logger")
     pcga_logger.info("This is the PCGA logger")
 
-Let's use an example provided by :py:module:`covmats`. Here, the prior covariance matrix, :math:`\mathbf{C}_{\mathrm{prior}}` is represented as a sparse factorization of its inverse :math:`\mathbf{C}_{\mathrm{prior}}^{-1}` with :math:`\mathbf{LDL}^{\mathrm{T}} = \mathbf{PC}_{\mathrm{prior}}^{-1}\mathbf{P}^{\mathrm{T}}`. This is wrapped in the :py:class:`covmats.CovViaSparsePrecisionCholesky` instance we create:
+Let's use an example provided by **covmats**. Here, the prior covariance matrix, :math:`\mathbf{C}_{\mathrm{prior}}` is represented as a sparse factorization of its inverse :math:`\mathbf{C}_{\mathrm{prior}}^{-1}` with :math:`\mathbf{LDL}^{\mathrm{T}} = \mathbf{PC}_{\mathrm{prior}}^{-1}\mathbf{P}^{\mathrm{T}}`. This is wrapped in the **:py:class:`**covmats.CovViaSparsePrecisionCholesky** instance we create:
 
 .. code-block:: python
 
@@ -672,7 +672,7 @@ It is possible to find the variance back from the ensemble
 📝 Credits
 ===========
 
-**pypcga** is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR `Ike Wai project.
+**pypcga** is based on Lee et al. [2016] and currently used for Stanford-USACE ERDC project led by EF Darve and PK Kitanidis and NSF EPSCoR **Ike Wai project**.
 
 Code contributors include:
 
@@ -722,8 +722,8 @@ We welcome contributions!
 .. |License| image:: https://img.shields.io/badge/License-BSD_3--Clause-blue.svg
     :target: https://github.com/antoinecollet5/pypcga/blob/master/LICENSE
 
-.. |Stars| image:: https://img.shields.io/github/stars/antoinecollet5/pypcga.svg?style=social&label=Star&maxAge=2592000
-    :target: https://github.com/antoinecollet5/pypcga/stargazers
+.. |Stars| image:: https://img.shields.io/github/stars/jonghyunharrylee/pypcga.svg?style=social&label=Star&maxAge=2592000
+    :target: https://github.com/jonghyunharrylee/pypcga/stargazers
     :alt: Stars
 
 .. |Python| image:: https://img.shields.io/pypi/pyversions/pypcga.svg
