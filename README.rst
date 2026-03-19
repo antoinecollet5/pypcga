@@ -2,7 +2,7 @@
 pyPCGA
 =======
 
-|License| |Stars| |Python| |PyPI| |Downloads| |Build Status| |Documentation Status| |Coverage| |Codacy| |Precommit: enabled| |Ruff| |ty| |DOI|
+|License| |Stars| |Python| |PyPI| |Downloads| |Build Status| |Documentation Status| |Coverage| |Codacy| |Precommit: enabled| |Ruff| |ty|
 
 🐍 A python implementation of the Principal Component Geostatistical Approach (PCGA) for large scale inversion.
 
@@ -764,6 +764,3 @@ We welcome contributions!
 .. |ty| image:: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json
     :target: https://github.com/astral-sh/ty
     :alt: Checked with ty
-
-.. |DOI| image:: https://zenodo.org/badge/DOI/10.5281/zenodo.11384588.svg
-   :target: https://doi.org/10.5281/zenodo.11384588
