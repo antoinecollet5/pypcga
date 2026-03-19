@@ -13,7 +13,10 @@ keywords = [
     "Eigen factorization",
     "PCGA",
     "Parameters estimation",
-    "Large Scale",
+    "Large-Scale",
+    "Uncertainty-Quantification",
+    "Uncertainty-Estimation",
+    "Inversion-Method"
 ]
 license = { file = "LICENSE" }
 
