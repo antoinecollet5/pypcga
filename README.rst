@@ -275,7 +275,7 @@ Perturb the observations to avoid the inverse crime (using the same forward to g
 
 .. figure:: https://raw.githubusercontent.com/antoinecollet5/pypcga/master/_static/obs_perturbation.png
    :alt: obs_perturbation
-   :width: 70%
+   :width: 50%
    :align: center
 
 The next step is to factorize the parameters covariance matrix. The number of principal component is set to 50.
