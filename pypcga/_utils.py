@@ -20,10 +20,10 @@ def mgs_stable(
 
     Q and R satisfy the following relations in exact arithmetic:
 
-    1. QR    	= Z
-    2. Q^*AQ 	= I
-    3. Q^*AZ	= R
-    4. ZR^{-1}	= Q
+        1. QR    	= Z
+        2. Q^*AQ 	= I
+        3. Q^*AZ	= R
+        4. ZR^{-1}	= Q
 
     Uses Modified Gram-Schmidt with re-orthogonalization (Rutishauser variant)
     for computing the A-orthogonal QR factorization
@@ -33,22 +33,18 @@ def mgs_stable(
     A : {sparse matrix, dense matrix, LinearOperator}
             An array, sparse matrix, or LinearOperator representing
             the operation ``A * x``, where A is a real or complex square matrix.
-
     Z : ndarray
-
+        TODO/
     verbose : bool, optional
               Displays information about the accuracy of the resulting QR
               Default: False
 
     Returns
     -------
-
     q : ndarray
             The A-orthogonal vectors
-
     Aq : ndarray
             The A^{-1}-orthogonal vectors
-
     r : ndarray
             The r of the QR decomposition
 
