@@ -315,10 +315,11 @@ class PCGA:
             Whether to solve the saddle point system (Ax = b), see eq 4.53 in (add ref),
             with:
                 - the direct approach (Cholesky factorization of A), see eq (4.57) in
-                :cite:`colletAssistedHistoryMatching2024a`
+                  :cite:`colletAssistedHistoryMatching2024`
                 - or to use the alternative iterative Krylov subspace approach as
-                described in :cite`saibabaEfficientMethodsLargescale2012,
-                saibabaFastAlgorithmsGeostatistical2013`.
+                  described in :cite`saibabaEfficientMethodsLargescale2012,
+                  saibabaFastAlgorithmsGeostatistical2013`.
+
             Using direct solve is practical if the number of observations is around 100
             or less. Beyond, it is advise to rely on the The default is False
             (using iterative Kryloc subspace by default).
@@ -361,10 +362,13 @@ class PCGA:
             The change is computed as the euclidean norm of the difference between the
             current updated values and the values at the previous iteration scaled by
             the euclidean norm of the values at the previous iteration:
+
             .. math::
+
                 \mathrm{change} = \dfrac{\left\lVert \mathbf{s}_{\ell+1} -
                 \mathbf{s}_{\ell} \right\rVert^{2}}{\left\lVert
                 \mathbf{s}_{\ell} \right\rVert^{2}}
+
             by default 1e-2.
         logger: Optional[Logger], optional
             Logger instance. If no logger is passed, there will be no output.

@@ -1,15 +1,16 @@
 .. _theory_ref:
 
+
 =================
 Theory
 =================
 
 What is the Principal Component Geostatistical Approach (PCGA) ?
 
-If you are interested in the math behind pypcga, you've comed to the right place. The following is an extract summary coming from the PhD of Antoine COLLET (see chapter 4.4.1 and 4.4.2).
+If you are interested in the math behind pypcga, you've comed to the right place. The following is an extract summary coming from the PhD of Antoine COLLET. See chapter 4.4.1 and 4.4.2 in :cite:t:`colletAssistedHistoryMatching2024`.
 
-General framework
-^^^^^^^^^^^^^^^^^
+General "black-box" framework
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Although these three "black-box" or "derivative-free" inversion methods may at first appear to be unrelated, not least because their respective authors present them in this way and do not use the same notations, they are in fact very similar in that they minimize the same objective function and can be derived from the same approximation form of Newton's method: Gauss-Newton iterations. But they differ in the computation of certain matrices and in the implementation.
 
@@ -71,7 +72,7 @@ with
   \end{aligned}
 
 
-Maximizing :math:`P(\mathbf{s}|\mathbf{d}_{\mathrm{obs}})`, i.e., finding the MAP estimate (the mode of the posterior distribution), is the same as minimizing its negative logarithm, i.e., the negative log-likelihood :math:`\mathcal{J}`. Analyzing :math:`\mathcal{J}`, one can see that it is the least squares misfit function :math:`\mathcal{J}_{\mathrm{LS}}` defined in :eq:`eq_cost_fun_def_vector`, augmented with a prior term that acts as a penalty.
+Maximizing :math:`P(\mathbf{s}|\mathbf{d}_{\mathrm{obs}})`, i.e., finding the MAP estimate (the mode of the posterior distribution), is the same as minimizing its negative logarithm, i.e., the negative log-likelihood :math:`\mathcal{J}`.
 
 .. _gn_procedure:
 
@@ -163,7 +164,7 @@ with :math:`\mathbf{A} = \mathbf{C}_{\mathrm{prior}}`, :math:`\mathbf{C} = \math
 As previously stated, all implementations described below are derived from this last equation but differ in 1) the way :math:`\mathbf{J}_{\ell}` is approximated, 2) the representation of :math:`\mathbf{C}_{\mathrm{prior}}`, 3) how matrix inversions are performed, and 4) how the step length :math:`\gamma` is chosen.
 
 Uncertainty quantification
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+--------------------------
 
 Minimizing :math:`\mathcal{J}` allows to find the MAP :math:`\widehat{\mathbf{s}}` i.e., the mean of the PDF but it does not answer the question of how to sample the full PDF (uncertainty quantification). A classic way relies on the linearization of the measurement operator (through the sensitivity matrix :math:`\mathbf{J}`) which, under the assumptions made in :ref:`sec_bayesian_framework`, yields a local Gaussian for the posterior PDF. This local Gaussian is specified by its mean (the MAP) and the posterior covariance matrix :math:`\mathbf{C}_{\mathrm{post}}` which can be approximated by the inverse of the Hessian of the negative log-likelihood of the posterior PDF computed at the MAP estimate :cite:p:`kitanidisQuasiLinearGeostatisticalTheory1995,lepineUncertaintyAnalysisPredictive1999,tarantolaInverseProblemTheory2005`. Considering iteration :math:`\ell` at which :math:`\mathbf{s}_{\ell} = \widehat{\mathbf{s}}`,
 
@@ -189,106 +190,18 @@ and using the forward operator linearization, the posterior covariance matrix on
   \mathbf{C}_{\mathrm{dd},\ell} \approx \mathbf{J}_{\ell} \mathbf{C}_{\mathrm{ss},\ell} \mathbf{J}_{\ell}^{\mathbf{T}}.
 
 
-
-
 For large-scale systems, computing and storing the approximation to :math:`\mathbf{C}_{\mathrm{ss}}` is computationally infeasible because the prior covariance matrices arise from finely discretized fields and certain covariance kernels are dense :cite:p:`saibabaFastComputationUncertainty2015`. In addition, computing the dense measurement operator requires solving many forward PDE problems, which can be computationally intractable. Note also that when a quasi-Newton optimization is used such as L-BFGS-B, the BFGS approximation may not converge to the true Hessian matrix :cite:p:`ren-puConvergenceVariableMetric1983`, hence, this approximation can not be used as a posterior covariance matrix. To ovecome these issues, uncertainty analysis and optimization can be conducted using randomized sampling.
-
-.. _sec_rml:
-
-Randomized Maximum Likelihood (RML)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Practically, a rigorous sampling procedure of the PDF, e.g., Markov chain Monte Carlo aka MCMC :cite:p:`bonet-cunhaHybridMarkovChain1996,oliverMarkovChainMonte1997` is untractable for large-scale problems and approximate sampling methods must be used :cite:p:`emerickInvestigationSamplingPerformance2013`. The Randomized Maximum Likelihood approach is one of them. It was introduced by both :cite:t:`kitanidisQuasiLinearGeostatisticalTheory1995` and :cite:t:`oliverConditioningPermeabilityFields1996` and consists of sampling both from the prior distribution :math:`\mathbf{s} \sim \mathcal{N}(\mathbf{s}_{\mathrm{prior}},\mathbf{C}_{\mathrm{prior}})` and the measurements distribution :math:`\mathbf{d}_{\mathrm{uc}} \sim \mathcal{N}(\mathbf{d}_{\mathrm{obs}},\mathbf{C}_{\mathrm{obs}})`, forming a set of :math:`N_{e}` couples of "perturbed" parameter and observation vectors {:math:`\mathbf{s}_{j}`, :math:`\mathbf{d}_{\mathrm{uc}, j}`}, also called realizations. The subscript "uc" stands for unconditional because :math:`\mathbf{d}_{\mathrm{uc}_{j}} = \mathbf{d}_{\mathrm{obs}} + \mathbf{v}_{j}`, with :math:`\mathbf{v}_{j}` being an unconditional realization of :math:`\mathbf{C}_{\mathrm{obs}}` with zero mean. Instead of finding a single vector :math:`\widehat{\mathbf{s}}` with :math:`\mathbf{s}_{0} = \mathbf{s}_{\mathrm{prior}}` as an initial guess, RML requires solving :math:`N_{e}` independent minimization problems -- one for each draw which are used as initial guess and measurement vectors -- with the following modified stochastic cost function
-
-.. math::
-  :label: eq_J_RML
-
-  \mathcal{J}(\mathbf{s}_{j}) =  \underbrace{\frac{1}{2} \left(\mathcal{F}(\mathbf{s}_{j}) - \mathbf{d}_{\mathrm{uc},j}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{obs}}^{-1}\left(\mathcal{F}(\mathbf{s}_{j}) - \mathbf{d}_{\mathrm{uc}, j}\right)}_{\mathrm{likelihood (data misfit)}} \underbrace{+ \frac{1}{2} \left(\mathbf{s}_{j} - \mathbf{s}_{\mathrm{prior}}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{prior}}^{-1}\left(\mathbf{s}_{j} - \mathbf{s}_{\mathrm{prior}}\right)}_{\mathrm{prior}},
-
-
-where :math:`j` denotes the :math:`j^{\mathrm{th}}` draw. After optimizing the :math:`N_{e}` problems, one obtains two ensembles of posterior parameter and prediction vectors that can be written under matrix form as
-
-.. math::
-
-  \begin{aligned}
-  \mathbf{S} &= \begin{pmatrix}\mathbf{s}_{0}, & \mathbf{s}_{1}, & \dots, & \mathbf{s}_{N_{e}-1}\end{pmatrix},
-  \\
-  \mathbf{D} &= \begin{pmatrix}\mathbf{d}_{0}, & \mathbf{d}_{1}, & \dots, & \mathbf{d}_{N_{e}-1}\end{pmatrix},
-  \end{aligned}
-
-with shape (:math:`N_{\mathrm{s}} \times N_{e}`) and (:math:`N_{\mathrm{obs}} \times N_{e}`) respectively. Given two samples consisting of :math:`N_{e}` independent realizations :math:`\mathbf{x}_{0}, ..., \mathbf{x}_{N_{e}-1}` and :math:`\mathbf{y}_{0}, \dots, \mathbf{y}_{N_{e}-1}` of :math:`N_{x}` and :math:`N_{y}-\mathrm{dimensional}` vectors :math:`\mathbf{X} \in \mathbb{R}^{N_{x}\times 1}` and :math:`\mathbf{Y} \in \mathbb{R}^{N_{y}\times 1}`, an unbiased estimator of the covariance matrix
-
-.. math::
-
-
-  \mathrm{cov}(\mathbf{X},\mathbf{Y}) = \mathbb{E}\left[\left(\mathbf{X}-\mathbb{E}[\mathbf{X}]\right)\left(\mathbf{Y}-\mathbb{E}[\mathbf{Y}]\right)^{\mathrm{T}}\right],
-
-
-
-is the empirical (or sample) covariance matrix denoted by a :math:`\sim`
-
-.. math::
-  :label: eq_empirical_cross_covariance
-
-  \widetilde{\mathbf{C}} = \frac{1}{N_{e} - 1} \sum_{j=0}^{N_{e}-1}\left(\mathbf{x}_{j} - \overline{\mathbf{x}}\right)\left(\mathbf{x}_{j} - \overline{\mathbf{x}} \right)^{\mathrm{T}}.
-
-
-
-
-The empirical auto-covariance matrices for :math:`\mathbf{s}` and :math:`\mathbf{d}` can then be computed from the ensembles :math:`\mathbf{S}` and :math:`\mathbf{D}` as
-
-.. math::
-  :label: eq_empirical_cross_covariances
-
-  \begin{aligned}
-  \widetilde{\mathbf{C}}_{\mathrm{SS}} & = \frac{1}{N_{e} - 1} \sum_{j=0}^{N_{e}-1}\left(\mathbf{s}_{j} - \overline{\mathbf{s}}\right)\left(\mathbf{s}_{j} - \overline{\mathbf{s}} \right)^{\mathrm{T}}  = \mathbf{A}_\mathrm{s}\mathbf{A}_\mathrm{s}^{\mathrm{T}},
-  \\
-  \widetilde{\mathbf{C}}^{f}_{\mathrm{DD}} &= \frac{1}{N_{e} - 1} \sum_{j=0}^{N_{e}-1}\left(\mathbf{d}_{j} -\overline{\mathbf{d}} \right)\left(\mathbf{d}_{j} - \overline{\mathbf{d}} \right)^{\mathrm{T}} = \mathbf{A}_\mathrm{d}\mathbf{A}_\mathrm{d}^{\mathrm{T}},
-  \\
-  \end{aligned}
-
-with :math:`\mathbf{A}_\mathrm{s}` and :math:`\mathbf{A}_\mathrm{d}` the centered anomaly matrices with size (:math:`N_{\mathrm{s}} \times N_{e}`) and (:math:`N_{\mathrm{obs}} \times N_{e}`) defined as
-
-.. math::
-  :label: eq_anomaly_matrices
-
-  \begin{aligned}
-  \mathbf{A}_{\mathrm{s}} &= \dfrac{1}{\sqrt{N_{e}-1}}\mathbf{S} \left(\mathbf{I}_{N_{e}} - \dfrac{1}{N_{e}} \mathbf{11}^{\mathrm{T}} \right),
-  \\
-  \mathbf{A}_{\mathrm{d}} &= \dfrac{1}{\sqrt{N_{e}-1}}\mathbf{D} \left(\mathbf{I}_{N_{e}} - \dfrac{1}{N_{e}} \mathbf{11}^{\mathrm{T}} \right).
-  \end{aligned}
-
-
-where :math:`\mathbf{1} \in \mathbb{R}^{N_e}` is defined as a column vector with all elements equal to 1, i.e., :math:`\mathbf{11}^{\mathrm{T}}` is a (:math:`N_e \times N_e`) matrix filled with one, :math:`\mathbf{I}_{N_e}` is the :math:`N_e\mathrm{-dimensional}` identity matrix, and the projection  :math:`\left(\mathbf{I}_{N_{e}} - \dfrac{1}{N_{e}} \mathbf{1}^{\mathrm{T}} \right)` subtracts the mean from the ensemble :cite:p:`evensenEfficientImplementationIterative2019`. Assuming that :math:`\overline{\mathbf{d}} = \mathcal{F}(\overline{\mathbf{s}})`, a first-order Taylor series expansion gives
-
-.. math::
-  :label: eq_1st_order_taylor_cov
-
-  \mathbf{d}_{j} - \overline{\mathbf{d}} = \mathcal{F}\left(\mathbf{s}_{j}\right) - \mathcal{F}(\overline{\mathbf{s}}) = \mathbf{J} \left(\mathbf{s}_{j} - \overline{\mathbf{s}}\right).
-
-Injecting the previous results in the auto-covariance definitions :eq:`eq_empirical_cross_covariances` yields
-
-.. math::
-
-
-  \begin{aligned}
-  \widetilde{\mathbf{C}}_{\mathrm{DD}} &= \frac{1}{N_{e} - 1} \sum_{j=0}^{N_{e}-1}\left(\mathbf{d}_{j} -\overline{\mathbf{d}} \right)\left(\mathbf{d}_{j} - \overline{\mathbf{d}} \right)^{\mathrm{T}},
-  \\
-  & = \frac{1}{N_{e} - 1} \sum_{j=0}^{N_{e}-1} \mathbf{J} \left(\mathbf{s}_{j} - \overline{\mathbf{s}}\right) \left(\mathbf{s}_{j} - \overline{\mathbf{s}}\right)^{\mathrm{T}} \mathbf{J}^{\mathrm{T}} = \mathbf{J} \widetilde{\mathbf{C}}_{\mathrm{SS}} \mathbf{J}^{\mathrm{T}},
-  \end{aligned}
-
-which is consistent with the analytical expression of :math:`\mathbf{C}_{\mathrm{dd}}` given in :eq:`eq_cdd_analytical`. When used with Gauss-Newton or quasi-Newton optimization coupled to an adjoint state model, the method has been shown to provide correct sampling of the PDF, giving as good a data fit as that generated by MCMC, even for highly nonlinear models :cite:p:`emerickInvestigationSamplingPerformance2013`. However, the cost of the method is very high because each optimization problem is solved independently. We will see further that the ensemble-based methods used in this manuscript, ESMDA and SIES, rely on the same idea of randomized sampling but also use the ensemble to compute the sensitivity matrices, thereby avoiding the need for an adjoint state and drastically reducing the number of runs required, while maintaining a correct PDF sampling. We will also see in :ref:`sec_ga_uncertainty` that the same idea has been developed for PCGA but as a post-porocessing step :cite:p:`saibabaFastComputationUncertainty2015`.
 
 
 The Geostatistical Approach (GA)
---------------------------------
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In the 90's, :cite:t:`kitanidisQuasiLinearGeostatisticalTheory1995`, Stanford University, has developed a form of the previous bayesian framework in which :math:`\gamma = 1` and :math:`\mathbf{s}_{\mathrm{prior}}` is replaced by :math:`\mathbf{X}\boldsymbol{\beta}` to represent the potential trend in :math:`\mathbf{s}`, with :math:`\mathbf{X}` a :math:`N_{\mathrm{s}} \times p` polynomial matrix, and :math:`\boldsymbol{\beta}` a vector of :math:`p` drift coefficients. He referred it as geostatistical inverse approach, with the following objective function to minimize
 
 .. math::
   :label: eq_obj_fun_pcga
 
-  \mathcal{J}(\mathbf{s}, \boldsymbol{\beta}) =  \underbrace{\frac{1}{2} \left(\mathcal{F}(\mathbf{s}) - \mathbf{d}_{\mathrm{obs}}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{obs}}^{-1}\left(\mathcal{F}(\mathbf{s}) - \mathbf{d}_{\mathrm{obs}}\right)}_{\emph{likelihood (data misfit)}} \underbrace{+ \frac{1}{2} \left(\mathbf{s} - \mathbf{X}\boldsymbol{\beta}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{prior}}^{-1}\left(\mathbf{s} - \mathbf{X}\boldsymbol{\beta}\right)}_{\emph{prior}}.
+  \mathcal{J}(\mathbf{s}, \boldsymbol{\beta}) =  \underbrace{\frac{1}{2} \left(\mathcal{F}(\mathbf{s}) - \mathbf{d}_{\mathrm{obs}}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{obs}}^{-1}\left(\mathcal{F}(\mathbf{s}) - \mathbf{d}_{\mathrm{obs}}\right)}_{\mathrm{likelihood (data misfit)}} \underbrace{+ \frac{1}{2} \left(\mathbf{s} - \mathbf{X}\boldsymbol{\beta}\right)^{\mathrm{T}} \mathbf{C}_{\mathrm{prior}}^{-1}\left(\mathbf{s} - \mathbf{X}\boldsymbol{\beta}\right)}_{\mathrm{prior}}.
 
 
 The particularity is that both :math:`\mathbf{s}` and :math:`\boldsymbol{\beta}` are updated at the same time. The Gauss-Newton iteration in :eq:`eq_gauss_newton_update_base` becomes
@@ -319,9 +232,7 @@ with
   \end{split}
 
 
-
-
-Following the principle exposed in :ref:`sec_loss_function_min`, a local minimum of :math:`\mathcal{J}` is found when the derivative cancels which yields
+A local minimum of :math:`\mathcal{J}` is found when the derivative cancels which yields
 
 .. math::
 
@@ -368,7 +279,7 @@ This can be easily solved for small-to-moderate-scale inverse problems, i.e., up
 This is the reason why :cite:t:`kitanidisPrincipalComponentGeostatistical2014` have developed a parametrized version, namely the Principal Component Geostatistical Approach (PCGA).
 
 The Principal Component Geostatistical Approach (PCGA)
-======================================================
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Principal Component Geostatistical Approach is presented as a computationally efficient algorithm for geostatistical inversion based on compression of covariance matrices and Jacobian-free evaluation of sensitivity :cite:p:`kitanidisPrincipalComponentGeostatistical2014`. It falls in the parametrization category of expansion techniques: a Karhunen-Loève expansion in which the total number of parameters is reduced by working on spaces of lower dimension. First, the Jacobian products, :math:`\mathbf{Js}` and :math:`\mathbf{JX}` are approximated by finite difference using a Taylor series expansion
 
@@ -429,7 +340,7 @@ components and can be much less than :math:`\mathbf{s}` and :math:`\mathbf{d}` f
 - Stochastic Partial Differential Equation (SPDE) :cite:p:`lindgrenSPDEApproachGaussian2022`, for all grid cell types, with support for anisotropies and non-stationarity.
 
 On the choice of k
-^^^^^^^^^^^^^^^^^^
+------------------
 
 As detailed by :cite:t:`leeLargescaleHydraulicTomography2014` and reference therein, the number of eigen pairs one should keep actually depends on the dimension and the smoothness of the covariance kernel. They propose to compute the relative error of the low-rank covariance matrix approximation as a ratio between the :math:`k^\mathrm{th}` eigen value and the first one
 
@@ -454,7 +365,7 @@ start the eigen decomposition with large :math:`K`, e.g., :math:`K \sim 100`, th
 .. _sec_ga_uncertainty:
 
 Posterior uncertainty
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
 In this subsection, :math:`\mathbf{J}` denotes :math:`\mathbf{J}|_{\widehat{\mathbf{s}}}`. To avoid the construction and inversion of :math:`\left(\mathbf{C}_{\mathrm{obs}} + \mathbf{J} \mathbf{C}_{\mathrm{prior}} \mathbf{J}^{\mathrm{T}} \right)^{-1}` from :eq:`eq_approx_cov_post_gn`, :cite:t:`kitanidisQuasiLinearGeostatisticalTheory1995` remarks that the posterior covariance matrix approximation can be written as
 
@@ -527,7 +438,7 @@ Note that the diagonal entries of the posterior covariance matrix :math:`\mathbf
 
 where :math:`\mathbf{C}_{\mathrm{post}, ii}` is the :math:`i^\mathrm{th}` diagonal element of :math:`\mathbf{C}_{\mathrm{post}}`, :math:`\mathbf{C}_{\mathrm{prior},ii}` is the :math:`i\mathrm{th}` diagonal entry or the prior variance of :math:`i^\mathrm{th}` parameter, :math:`\left(\mathbf{J}\mathbf{C}_{\mathrm{prior}}\right)_{i}` is the :math:`i^\mathrm{th}` column of :math:`\mathbf{J}\mathbf{C}_{\mathrm{prior}}`, and :math:`\mathbf{X}_{i}^{\mathrm{T}}` is the :math:`i\mathrm{th}` column of :math:`\mathbf{X}^{\mathrm{T}}`.
 
-An alternative also introduced by :cite:t:`kitanidisQuasiLinearGeostatisticalTheory1995` is to rely on the RML idea previously detailed in :ref:`sec_rml`. In the case of GA and PCGA however, the sampling is performed \emph{a posteriori} which means that no extra forward operator :math:`\mathcal{F}` run is needed to sample from the PDF as we used the linearized operator :math:`\mathbf{J}` instead. The conditional realizations, i.e., samples from the posterior distribution are computed from the perturbed objective function in :eq:`eq_J_RML` after convergence to :math:`\widehat{\mathbf{s}}` with :math:`\mathbf{s}_{\mathrm{prior}} = \mathbf{X}\boldsymbol{\beta}` and are expressed as
+An alternative also introduced by :cite:t:`kitanidisQuasiLinearGeostatisticalTheory1995` is to rely on the Randomized Maximum Likelihood (RML) idea. In the case of GA and PCGA however, the sampling is performed \emph{a posteriori} which means that no extra forward operator :math:`\mathcal{F}` run is needed to sample from the PDF as we used the linearized operator :math:`\mathbf{J}` instead. The conditional realizations, i.e., samples from the posterior distribution are computed from the perturbed objective function after convergence to :math:`\widehat{\mathbf{s}}` with :math:`\mathbf{s}_{\mathrm{prior}} = \mathbf{X}\boldsymbol{\beta}` and are expressed as
 
 .. math::
 
@@ -561,7 +472,7 @@ After an ensemble of :math:`N_{e}` conditional realizations :math:`\widehat{\mat
 Other fast computation methods have been developed but are not reviewed here :cite:p:`saibabaFastAlgorithmsGeostatistical2013,saibabaFastComputationUncertainty2015`.
 
 System resolution
-^^^^^^^^^^^^^^^^^
+-----------------
 
 Several methods can be used to solve the systems in :eq:`eq_ga_beta_system`, :eq:`eq_ga_beta_system_var`, :eq:`eq_ga_beta_system_var_2`, :eq:`eq_pcga_uncertainty_system`, :eq:`eq_ga_beta_system_var_3`. In all cases, the matrix to be inverted is identical. The first approach is to use a direct solver. In this case, a Cholesky factorization can be used. Indeed, the matrix
 
