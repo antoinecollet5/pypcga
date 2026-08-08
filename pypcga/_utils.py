@@ -7,13 +7,13 @@ import numpy.typing as npt
 import scipy as sp
 from scipy.sparse.linalg import LinearOperator
 
-NDArrayFloat = npt.NDArray[np.float64]
-NDArrayBool = npt.NDArray[bool]
-NDArrayInt = npt.NDArray[np.int64]
+NDArrayFloat = npt.NDArray[np.floating]
+NDArrayBool = npt.NDArray[np.bool_]
+NDArrayInt = npt.NDArray[np.integer]
 
 
 def mgs_stable(
-    A: NDArrayFloat, Z: NDArrayFloat, verbose=False
+    A: Union[NDArrayFloat, LinearOperator], Z: NDArrayFloat, verbose=False
 ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
     """
     Returns QR decomposition of Z with Q*AQ = I.
