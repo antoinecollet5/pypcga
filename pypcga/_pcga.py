@@ -251,7 +251,7 @@ class PCGA:
         is_direct_solve: bool = False,
         random_state: Optional[
             Union[int, np.random.Generator, np.random.RandomState]
-        ] = np.random.default_rng(),
+        ] = None,
         is_objfun_exact: bool = False,  # former objeval
         max_it_lm: int = multiprocessing.cpu_count(),
         alphamax_lm: float = 10.0**3.0,  # does it sound ok?
@@ -393,6 +393,13 @@ class PCGA:
         self.is_lm: bool = is_lm
         self.is_direct_solve: bool = is_direct_solve
 
+        # Define Drift (or Prior) functions
+        if drift is not None:
+            assert drift.s_dim == self.s_dim
+            self.drift: covmats.DriftMatrix = drift
+        else:
+            self.drift = covmats.ConstantDriftMatrix(self.s_dim)
+
         # Add a warning depending on the number of observations
         if self.is_direct_solve and self.n_obs > 100:
             mat_shape = self.n_obs + self.drift.beta_dim
@@ -440,13 +447,6 @@ class PCGA:
 
         # Initialized as the diagonal of the covariance matrix
         self.post_diagv = self.prior_s_var
-
-        # Define Drift (or Prior) functions
-        if drift is not None:
-            assert drift.s_dim == self.s_dim
-            self.drift: covmats.DriftMatrix = drift
-        else:
-            self.drift = covmats.ConstantDriftMatrix(self.s_dim)
 
         # Internal state
         self.is_save_jac = is_save_jac
@@ -1152,6 +1152,7 @@ class PCGA:
             d=20,
             single_pass=False,
             keep_neg_eigvals=False,
+            random_state=self.random_state,
         )
 
         logging.info(
@@ -1614,10 +1615,6 @@ class PCGA:
             _inflation: float = self.istate.best_inflation
         else:
             _inflation = inflation
-        if is_direct_solve is None:
-            _is_direct_solve: bool = self.is_direct_solve
-        else:
-            _is_direct_solve = is_direct_solve
 
         b_all, invAb_all = self._get_post_cov_build_inputs(
             HZ=self.HZ,
@@ -1680,10 +1677,6 @@ class PCGA:
             _random_state = self.random_state
         else:
             _random_state = check_random_state(random_state)
-        if is_direct_solve is None:
-            _is_direct_solve: bool = self.is_direct_solve
-        else:
-            _is_direct_solve = is_direct_solve
 
         b_all, invAb_all = self._get_post_cov_build_inputs(
             HZ=self.HZ,
@@ -1705,6 +1698,6 @@ class PCGA:
 
         return covmats.CovViaEigenFactorization(
             covmats.get_linop_eigen_factorization(
-                _op(), size=self.s_dim, n_pc=_n_pc, random_state=random_state
+                _op(), size=self.s_dim, n_pc=_n_pc, random_state=_random_state
             )
         )
