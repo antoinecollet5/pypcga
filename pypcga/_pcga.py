@@ -86,6 +86,11 @@ class InternalState:
 
     @property
     def best_cR(self) -> float:
+        """
+        Return the cR predictive model-checking statistic at the best iteration.
+
+        Not yet implemented (planned for v0.3.0) -- currently always returns NaN.
+        """
         return self.cR_seq[self.iter_best - 1]
 
     @property
@@ -98,6 +103,11 @@ class InternalState:
 
     @property
     def cR_cur(self) -> float:
+        """
+        Return the cR predictive model-checking statistic at the current iteration.
+
+        Not yet implemented (planned for v0.3.0) -- currently always returns NaN.
+        """
         return self.cR_seq[-1]
 
 
@@ -293,11 +303,23 @@ class PCGA:
             Eigen factorization of the Covariance matrix of the inverted parameters
             with shape (:math:`N_{s}`, :math:`N_{s}`).
         drift : Optional[DriftMatrix], optional
-            _description_, by default None
+            Drift (prior mean trend) matrix ``X`` such that the prior mean of
+            ``s`` is modeled as ``X @ beta`` for some unknown drift
+            coefficients ``beta``. If None, a constant drift
+            (``covmats.ConstantDriftMatrix``) is used, i.e. the prior mean is
+            an unknown constant. By default None.
         prior_s_var : Optional[Union[float, NDArrayFloat]], optional
-            _description_, by default None
+            A priori variance of the control variables (the diagonal of the
+            prior covariance, used e.g. to compute the posterior variance).
+            Can be a single float (applied to all parameters) or a 1D array
+            with one value per parameter. If None, it is taken from
+            ``Q.get_diagonal()``. By default None.
         callback : Optional[Callable], optional
-            _description_, by default None
+            Optional user callback invoked as
+            ``callback(self, s_hat=..., simul_obs=..., n_iter=...)`` once
+            after the initial state and again at the end of every
+            Gauss-Newton iteration. Useful to save/plot intermediate solver
+            states. By default None.
         is_line_search : bool, optional
             Whether to use line search (add ref) if the Gauss-Newton iteration fails
             to lower the cost function value. It comes at the cost of
@@ -332,12 +354,20 @@ class PCGA:
             If `random_state` is already a ``Generator`` or ``RandomState``
             instance then that instance is used.
         is_objfun_exact : bool, optional
-            _description_, by default False
+            Reserved flag (formerly ``objeval`` in the original MATLAB/Python
+            pyPCGA implementation). Currently stored on the instance but not
+            yet consumed anywhere else in this implementation -- kept for API
+            compatibility while the feature is ported. By default False.
         max_it_lm: int
             Maximum number iterations when using Levenberg Marquard regularization.
             Only applies if `is_lm` is True. By default use all available CPUs.
         alphamax_lm : float, optional
-            Maximum weight for LM. TODO: add the formula. By default 10.0**3.
+            Maximum inflation weight used for the observation-error covariance
+            during Levenberg-Marquardt regularization. The weights used across
+            the `max_it_lm` inner iterations are logarithmically spaced between
+            1.0 and `alphamax_lm` (see :meth:`get_cov_obs_inflation_factors`,
+            ``10 ** linspace(0, log10(alphamax_lm), max_it_lm)``).
+            By default 10.0**3.
         lm_smax : Optional[float], optional
             Maximum LM solution, by default None
         max_it_ls : int, optional
@@ -374,7 +404,13 @@ class PCGA:
             Logger instance. If no logger is passed, there will be no output.
             By default None.
         is_save_jac : bool, optional
-            _description_, by default False
+            Whether to keep the last computed Jacobian-related products
+            (`self.HX`, `self.HZ`, `self.Hs`) on the instance after each
+            Gauss-Newton iteration. These are required by
+            :meth:`get_dense_post_cov` and :meth:`get_eigen_post_cov` to
+            compute the posterior covariance after the inversion completes,
+            so this should stay True unless memory is a concern and the
+            posterior covariance will not be needed. By default True.
         eps : float, optional
             PCGA perturbation scalar (see eq. in ...), By default 1.0e-8.
         """
@@ -429,10 +465,11 @@ class PCGA:
         # PCGA parameters (purturbation size)
         self.eps: float = eps
 
-        # TODO: make configurable + explain that this is not intesreting for small
-        # size problem because the time to start the processes is higher than the
-        # calculation time
-        # this is interesting when the number of observations is large.
+        # NOTE: max_workers is derived from is_lm/max_it_lm/max_workers_lm rather
+        # than being independently configurable. Multi-processing is only
+        # worthwhile when the number of observations (and thus the per-worker
+        # forward model cost) is large enough to outweigh the process-startup
+        # overhead; for small problems it is not interesting.
         self.max_workers = max(max_workers_lm, max_it_lm) if is_lm else 1
 
         # keep track of the internal state
@@ -580,13 +617,16 @@ class PCGA:
         """
         Inflation factors used in each internal loop.
 
-        It is a sequence only if Levenberg Marqard is on. that depends on both the
-        max number of Levenberg
+        It is a sequence of `max_it_lm` values, logarithmically spaced between
+        1.0 and `alphamax_lm`, only if Levenberg-Marquardt is on (`is_lm`).
+        Otherwise it is a single value of 1.0 (no inflation).
 
         Returns
         -------
         NDArrayFloat
-            _description_
+            1D array of inflation factors, one per internal (LM) loop. Has
+            length `max_it_lm` if `is_lm` is True, otherwise length 1
+            containing only ``[1.0]``.
         """
         if self.is_lm:
             return 10 ** (np.linspace(0.0, np.log10(self.alphamax_lm), self.max_it_lm))
@@ -671,15 +711,22 @@ class PCGA:
         return Jxs
 
     def objective_function_ls(self, simul_obs) -> NDArrayFloat:
-        """
+        r"""
+        Compute the data-misfit (least-squares) part of the objective function.
 
-        simul_obs with shape (n_obs, ne)
+        Computed for an ensemble of realizations at once (vectorized via
+        :func:`ensemble_dot`), as
+        :math:`0.5 (y - h(s))^T R^{-1} (y - h(s))`.
 
-        0.5(y-h(s))^TR^{-1}(y-h(s))
+        Parameters
+        ----------
+        simul_obs : NDArrayFloat
+            Simulated observations, shape (n_obs, Ne).
 
-        TODO: as vectors.
-
-        return size = Ne
+        Returns
+        -------
+        NDArrayFloat
+            Data-misfit value for each realization, shape (Ne,).
         """
         ymhs = simul_obs.T - self.obs
         return 0.5 * ensemble_dot(ymhs.T, self.cov_obs.solve(ymhs.T))
@@ -871,8 +918,12 @@ class PCGA:
         beta_all = np.zeros((p, self.n_internal_loops), dtype=np.float64)
         s_hat_all = np.zeros((m, self.n_internal_loops), dtype=np.float64)
         Q2_all = np.zeros((self.n_internal_loops), dtype=np.float64)
-        # TODO
-        cR_all = np.zeros((self.n_internal_loops), dtype=np.float64)
+        # cR (a second predictive model-checking statistic, see
+        # kitanidisIntroductionGeostatisticsApplications1997) is not yet
+        # implemented (planned for v0.3.0, see display_objfun). Use NaN
+        # rather than 0.0 so it isn't mistaken for a real, computed value by
+        # anyone reading `istate.cR_seq` / `istate.best_cR` directly.
+        cR_all = np.full((self.n_internal_loops), np.nan, dtype=np.float64)
 
         # Call a different internal iteration routine to solve the linear system.
         if self.is_direct_solve:
@@ -959,8 +1010,18 @@ class PCGA:
         # if lm is off, this will always be True
         is_valid_s_hat = np.invert(self.is_s_violate_lm_bounds(s_hat_all))
 
-        # TODO: what if no valid s_hat ??? -> consider the best obj-fun
-        # or maybe change the valid and use clip instead ???
+        if not np.any(is_valid_s_hat):
+            # Every LM candidate violates the prescribed (lm_smin, lm_smax)
+            # bounds. Rather than silently proceeding with empty arrays
+            # (which would crash forward_model/argmin downstream with a
+            # confusing error), fall back to considering all candidates and
+            # let the objective-function comparison below pick the best one.
+            self.loginfo(
+                "All LM candidates violate the prescribed lm_smin/lm_smax "
+                "bounds; falling back to evaluating all candidates and "
+                "selecting the one with the lowest objective function."
+            )
+            is_valid_s_hat = np.ones_like(is_valid_s_hat, dtype=bool)
 
         # keep only valid s vectors and associated inflation factors
         # note that this has no effects if LM is off
@@ -981,10 +1042,15 @@ class PCGA:
         # i.e., respecting the imposed bounds.
         simul_obs_all = self.forward_model(s_hat_all)
 
-        if np.shape(simul_obs_all) != (self.obs.size, self.n_internal_loops):
-            raise ValueError("np.size(simul_obs_all,1) != n_internal_loops")
+        n_valid = int(np.count_nonzero(is_valid_s_hat))
+        if np.shape(simul_obs_all) != (self.obs.size, n_valid):
+            raise ValueError(
+                f"forward_model returned shape {np.shape(simul_obs_all)}, expected "
+                f"({self.obs.size}, {n_valid}) i.e. (n_obs, number of valid "
+                "LM candidates)"
+            )
 
-        self.loginfo("%d objective value evaluations" % self.n_internal_loops)
+        self.loginfo(f"{n_valid:.d} objective value evaluations")
 
         # objective function for all vectors
         objs: NDArrayFloat = self.objective_function(
@@ -1598,7 +1664,11 @@ class PCGA:
         Parameters
         ----------
         is_direct_solve : Optional[bool], optional
-            _description_, by default None
+            Whether to solve the saddle-point system with the direct Cholesky
+            approach rather than the iterative Krylov subspace approach used
+            when building the posterior covariance.
+            If None, `self.is_direct_solve` (the value used during the
+            inversion) is taken. By default None.
         inflation : Optional[float], optional
             Inflation factor used to build the posterior covariance matrix.
             If None, the random_state used by PCGA is taken. By default None.
@@ -1644,7 +1714,11 @@ class PCGA:
         Parameters
         ----------
         is_direct_solve : Optional[bool], optional
-            _description_, by default None
+            Whether to solve the saddle-point system with the direct Cholesky
+            approach rather than the iterative Krylov subspace approach used
+            when building the posterior covariance.
+            If None, `self.is_direct_solve` (the value used during the
+            inversion) is taken. By default None.
         inflation : Optional[float], optional
             Inflation factor used to build the posterior covariance matrix.
             If None, the random_state used by PCGA is taken. By default None.
