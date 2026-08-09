@@ -63,6 +63,15 @@ class InternalState:
     simul_obs_init: NDArrayFloat = field(
         default_factory=lambda: np.array([], dtype=np.float64)
     )
+    # Jacobian-related products from the last completed linearization
+    # (see PCGA's `is_save_jac` parameter), required to compute the
+    # posterior covariance after the inversion completes.
+    HX: NDArrayFloat = field(default_factory=lambda: np.array([]))
+    HZ: NDArrayFloat = field(default_factory=lambda: np.array([]))
+    Hs: NDArrayFloat = field(default_factory=lambda: np.array([]))
+    # Approximate inverse of A used as a preconditioner to solve Ax = b with
+    # the Krylov subspace approach. None until the first iterative solve.
+    invA_as_linop: Optional["InvALinOp"] = None
     obj_seq: List[float] = field(default_factory=lambda: [])
     inflation_seq: List[float] = field(default_factory=lambda: [])
     Q2_seq: List[float] = field(default_factory=lambda: [])
@@ -238,11 +247,6 @@ class PCGA:
         "is_save_jac",
         "cov_obs_inflation_factors",
         "logger",
-        "HX",
-        "HZ",
-        "Hs",
-        "invA_as_linop",
-        "simul_obs_init",
     ]
 
     def __init__(
@@ -405,7 +409,7 @@ class PCGA:
             By default None.
         is_save_jac : bool, optional
             Whether to keep the last computed Jacobian-related products
-            (`self.HX`, `self.HZ`, `self.Hs`) on the instance after each
+            (`self.istate.HX`, `self.istate.HZ`, `self.istate.Hs`) after each
             Gauss-Newton iteration. These are required by
             :meth:`get_dense_post_cov` and :meth:`get_eigen_post_cov` to
             compute the posterior covariance after the inversion completes,
@@ -430,6 +434,8 @@ class PCGA:
         self.is_direct_solve: bool = is_direct_solve
 
         # Define Drift (or Prior) functions
+        # NOTE: this must be set before the direct-solve warning below, which
+        # relies on self.drift.beta_dim.
         if drift is not None:
             assert drift.s_dim == self.s_dim
             self.drift: covmats.DriftMatrix = drift
@@ -490,17 +496,6 @@ class PCGA:
 
         self.cov_obs_inflation_factors = self.get_cov_obs_inflation_factors()
         self.logger: Optional[logging.Logger] = logger
-
-        # TODO: see if we move these internal states
-        self.HX: NDArrayFloat = np.array([])
-        self.HZ: NDArrayFloat = np.array([])
-        self.Hs: NDArrayFloat = np.array([])
-
-        # approximate inverse of A used a preconditioner to solve Ax = b
-        # None by default -> updated later
-        self.invA_as_linop: Optional[InvALinOp] = None
-
-        self.simul_obs_init: NDArrayFloat = np.array([], dtype=np.float64)
 
         ##### Optimization
         self.display_init_parameters()
@@ -855,9 +850,9 @@ class PCGA:
         Hs = Htemp[:, p + n_pc : p + n_pc + 1]
 
         if self.is_save_jac:
-            self.HX = HX
-            self.HZ = HZ
-            self.Hs = Hs
+            self.istate.HX = HX
+            self.istate.HZ = HZ
+            self.istate.Hs = Hs
 
         # compute the pre-posterior data space
         if p == 1:
@@ -941,13 +936,13 @@ class PCGA:
                 "Use Krylov subspace iterative solver "
                 "for saddle-point (cokrigging) system"
             )
-            self.invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
+            self.istate.invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
 
             def internal_iteration(
                 _inflation,
             ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
                 return self.internal_iteration_krylov_subspace(
-                    HZ, HX, Z, b, self.invA_as_linop, _inflation
+                    HZ, HX, Z, b, self.istate.invA_as_linop, _inflation
                 )
 
         # if LM_smax, LM_smin defined and solution violates them, LM_eval[i] "
@@ -992,7 +987,7 @@ class PCGA:
                         get_internal_loop_params(HX)(),
                         get_internal_loop_params(Z)(),
                         get_internal_loop_params(b)(),
-                        get_internal_loop_params(self.invA_as_linop)(),
+                        get_internal_loop_params(self.istate.invA_as_linop)(),
                         self.cov_obs_inflation_factors,
                     )
 
@@ -1308,13 +1303,64 @@ class PCGA:
         for k, v in dat.items():
             self.loginfo(f"** {k:<{maxlen}} : {v:.3e}")
 
+    def _invoke_callback(
+        self, s_hat: NDArrayFloat, simul_obs: NDArrayFloat, n_iter: int
+    ) -> None:
+        """
+        Call the optional user callback, if any, with the current solver state.
+
+        Used both to save the initial state (`n_iter=0`, before any
+        Gauss-Newton iteration) and at the end of every subsequent internal
+        iteration, so some intermediate solver states can be saved/plotted.
+        """
+        if self.callback is not None:
+            self.callback(self, s_hat=s_hat, simul_obs=simul_obs, n_iter=n_iter)
+
+    def _gauss_newton_step(
+        self, s_past: NDArrayFloat, simul_obs_cur: NDArrayFloat, n_iter: int
+    ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat, float, float]:
+        """
+        Perform a single Gauss-Newton (+ optional LM) internal iteration.
+
+        Runs one `linear_iteration`, invokes the optional user callback, and
+        records the resulting objective/inflation/Q2/cR values in
+        `self.istate`. Convergence checks and the best-solution bookkeeping
+        stay in the caller (`gauss_newton`), since they drive the loop's
+        control flow (`break`/line search).
+
+        Returns
+        -------
+        Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat, float, float]
+            (s_cur, beta_cur, simul_obs_cur, inflation_cur, obj) for this step.
+        """
+        start = time()
+        self.loginfo("")
+        self.loginfo(f"***** Iteration {n_iter + 1} ******")
+
+        s_cur, beta_cur, simul_obs_cur, inflation_cur, obj, Q2, cR = (
+            self.linear_iteration(s_past, simul_obs_cur)
+        )
+
+        self._invoke_callback(s_hat=s_cur, simul_obs=simul_obs_cur, n_iter=n_iter)
+
+        # save the objective function, inflation factors etc.
+        self.istate.obj_seq.append(obj)
+        self.istate.inflation_seq.append(inflation_cur)
+        self.istate.Q2_seq.append(Q2)
+        self.istate.cR_seq.append(cR)
+
+        self.loginfo(
+            "- Geostat. inversion at iteration %d is %g sec"
+            % ((n_iter + 1), round(time() - start))
+        )
+        return s_cur, beta_cur, simul_obs_cur, inflation_cur, obj
+
     def gauss_newton(self) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat, int]:
         """
         Gauss-newton iteration
         """
 
         s_init = self.s_init
-        self.maxiter
 
         res = 1.0
 
@@ -1325,7 +1371,7 @@ class PCGA:
         simul_obs_init = self.forward_model(s_init)
         self.istate.simul_obs_best = simul_obs_init
 
-        self.simul_obs_init = simul_obs_init
+        self.istate.simul_obs_init = simul_obs_init
         residuals = (simul_obs_init.T - self.obs).T
         # item() to convert to scalar
         rmse_init: float = self.rmse(residuals, False).item()
@@ -1354,34 +1400,11 @@ class PCGA:
         self.istate.obj_seq.append(float(obj))
 
         # Save the initial state
-        if self.callback is not None:
-            self.callback(self, s_hat=s_cur, simul_obs=simul_obs_cur, n_iter=0)
+        self._invoke_callback(s_hat=s_cur, simul_obs=simul_obs_cur, n_iter=0)
 
         for n_iter in range(self.maxiter):
-            start = time()
-
-            # TODO: make a loop for that
-            self.loginfo("")
-            self.loginfo(f"***** Iteration {n_iter + 1} ******")
-            s_cur, beta_cur, simul_obs_cur, inflation_cur, obj, Q2, cR = (
-                self.linear_iteration(s_past, simul_obs_cur)
-            )
-
-            # Call the optional callback at the end of each linear iteration so some
-            # intermediate solver states could be saved
-            # TODO: move somewhere else ???
-            if self.callback is not None:
-                self.callback(self, s_hat=s_cur, simul_obs=simul_obs_cur, n_iter=n_iter)
-
-            # save the objective function, inflation factors etc.
-            self.istate.obj_seq.append(obj)
-            self.istate.inflation_seq.append(inflation_cur)
-            self.istate.Q2_seq.append(Q2)
-            self.istate.cR_seq.append(cR)
-
-            self.loginfo(
-                "- Geostat. inversion at iteration %d is %g sec"
-                % ((n_iter + 1), round(time() - start))
+            s_cur, beta_cur, simul_obs_cur, inflation_cur, obj = (
+                self._gauss_newton_step(s_past, simul_obs_cur, n_iter)
             )
 
             # case 1: progress in objective function
@@ -1469,12 +1492,20 @@ class PCGA:
                     "- this option works for O(nobs) ~ 100"
                 )
                 self.post_diagv = self._compute_post_cov_diag(
-                    self.HZ, self.HX, self.cov_obs, inflation_cur, is_direct_solve=True
+                    self.istate.HZ,
+                    self.istate.HX,
+                    self.cov_obs,
+                    inflation_cur,
+                    is_direct_solve=True,
                 )
             else:
                 self.loginfo("start posterior variance computation")
                 self.post_diagv = self._compute_post_cov_diag(
-                    self.HZ, self.HX, self.cov_obs, inflation_cur, is_direct_solve=False
+                    self.istate.HZ,
+                    self.istate.HX,
+                    self.cov_obs,
+                    inflation_cur,
+                    is_direct_solve=False,
                 )
             self.loginfo(f"posterior diag. computed in {(time() - start):.3e} s")
             # if self.iter_save:
@@ -1687,8 +1718,8 @@ class PCGA:
             _inflation = inflation
 
         b_all, invAb_all = self._get_post_cov_build_inputs(
-            HZ=self.HZ,
-            HX=self.HX,
+            HZ=self.istate.HZ,
+            HX=self.istate.HX,
             cov_obs=self.cov_obs,
             inflation=_inflation,
             is_direct_solve=_is_direct_solve,
@@ -1753,8 +1784,8 @@ class PCGA:
             _random_state = check_random_state(random_state)
 
         b_all, invAb_all = self._get_post_cov_build_inputs(
-            HZ=self.HZ,
-            HX=self.HX,
+            HZ=self.istate.HZ,
+            HX=self.istate.HX,
             cov_obs=self.cov_obs,
             inflation=_inflation,
             is_direct_solve=_is_direct_solve,
