@@ -1,19 +1,23 @@
 """Provide utilities."""
 
-from typing import Tuple, Union
+import logging
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
 import scipy as sp
+from scipy._lib._util import check_random_state
 from scipy.sparse.linalg import LinearOperator
 
 NDArrayFloat = npt.NDArray[np.floating]
 NDArrayBool = npt.NDArray[np.bool_]
-NDArrayInt = npt.NDArray[np.integer]
 
 
 def mgs_stable(
-    A: Union[NDArrayFloat, LinearOperator], Z: NDArrayFloat, verbose=False
+    A: Union[NDArrayFloat, LinearOperator],
+    Z: NDArrayFloat,
+    verbose=False,
+    logger: Optional[logging.Logger] = None,
 ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
     """
     Returns QR decomposition of Z with Q*AQ = I.
@@ -34,10 +38,9 @@ def mgs_stable(
             An array, sparse matrix, or LinearOperator representing
             the operation ``A * x``, where A is a real or complex square matrix.
     Z : ndarray
-        TODO/
-    verbose : bool, optional
-              Displays information about the accuracy of the resulting QR
-              Default: False
+        Matrix of vectors to be A-orthogonalized, shape (n, k) with k <= n.
+    logger: Optional[logging.Logger]
+        Optional logger to display info. The default is None.
 
     Returns
     -------
@@ -81,7 +84,6 @@ def mgs_stable(
 
     # Initialize
     Aq = np.zeros_like(Z, dtype="d")
-    q = np.zeros_like(Z, dtype="d")
     r = np.zeros((n, n), dtype="d")
 
     reorth = np.zeros((n,), dtype="d")
@@ -118,24 +120,27 @@ def mgs_stable(
         q[:, k] *= tt
         Aq[:, k] *= tt
 
-    if verbose:
+    if logger is not None:
+        # Number of re-orthogonalization passes performed for each column
+        logger.info("Re-orthogonalization counts per column: ", reorth)
+
         # Verify Q*R = Y
-        print("||QR-Y|| is ", np.linalg.norm(np.dot(q, r) - Z, 2))
+        logger.info("||QR-Y|| is ", np.linalg.norm(np.dot(q, r) - Z, 2))
 
         # Verify Q'*A*Q = I
         T = np.dot(q.T, Aq)
-        print("||Q^TAQ-I|| is ", np.linalg.norm(T - np.eye(n, dtype="d"), ord=2))
+        logger.info("||Q^TAQ-I|| is ", np.linalg.norm(T - np.eye(n, dtype="d"), ord=2))
 
         # verify Q'AY = R
-        print("||R - Q^TAY|| is ", np.linalg.norm(r - np.dot(Aq.T, Z), 2))
+        logger.info("||R - Q^TAY|| is ", np.linalg.norm(r - np.dot(Aq.T, Z), 2))
 
         # Verify YR^{-1} = Q
         val = np.inf
         try:
             val = np.linalg.norm(np.linalg.solve(r.T, Z.T).T - q, 2)
         except sp.linalg.LinAlgError:
-            print("YR^{-1}-Q is singular")
-        print("||YR^{-1}-Q|| is ", val)
+            logger.info("YR^{-1}-Q is singular")
+        logger.info("||YR^{-1}-Q|| is ", val)
 
     return q, Aq, r
 
@@ -148,37 +153,76 @@ def ghep(
     d: int,
     single_pass: bool = True,
     keep_neg_eigvals: bool = False,
+    random_state: Optional[
+        Union[int, np.random.Generator, np.random.RandomState]
+    ] = None,
 ) -> Tuple[NDArrayFloat, NDArrayFloat]:
     """
-    Randomized Eigen Value Decomposition (EVD).
+    Randomized generalized Hermitian eigenvalue problem (EVD) solver.
 
-    TODO: add ref. :cite:t:`halkoFindingStructureRandomness2010`_.
+    Computes a rank-``r`` approximate eigen-decomposition of the (generalized)
+    Hermitian eigenvalue problem ``A v = s B v`` using a randomized range-finder,
+    following the randomized SVD/EVD approach of Halko, Martinsson and Tropp.
 
     Parameters
     ----------
-    A : NDArrayFloat
-        A ∈ RN×N
+    A : Union[NDArrayFloat, LinearOperator]
+        Symmetric operator to decompose, A ∈ R^{N x N}.
+    B : Union[NDArrayFloat, LinearOperator]
+        Symmetric positive-definite operator defining the generalized inner
+        product used for the A-orthogonal projection (see :func:`mgs_stable`).
+    Binv : Union[NDArrayFloat, LinearOperator]
+        Operator (or matrix) applying the inverse of ``B``. Used to map the
+        random test matrix into the correct space before sampling.
     r : int
-        Desired rank.
+        Desired rank of the approximation.
     d : int
-        Oversampling parameter. Typically, d is chosen to be less than 20 following the
-        arguments in [5, 7]. The improvement in the approximation error with increasing
-        p is verified in both theory and experiment (Sections 4 and 5)
+        Oversampling parameter. Typically, ``d`` is chosen to be less than 20
+        following the arguments in [3]_. The improvement in the approximation
+        error with increasing oversampling is verified in both theory and
+        experiment.
+    single_pass : bool, optional
+        If True, use a single-pass (one matrix application of ``A``) algorithm,
+        trading some accuracy for fewer operator applications. If False, a
+        second pass through ``A`` is used to improve accuracy. By default True.
+    keep_neg_eigvals : bool, optional
+        If True, keep negative eigenvalues in the returned decomposition.
+        If False (default), only strictly positive eigenvalues (and their
+        associated eigenvectors) are returned.
+    random_state : Optional[Union[int, np.random.Generator, np.random.RandomState]]
+        Pseudorandom number generator state used to draw the random test
+        matrix ``Omega``. If None, a new default generator is used (results
+        will not be reproducible across calls). If an int, a new generator is
+        seeded with it. If already a ``Generator``/``RandomState`` instance,
+        that instance is used directly. By default None.
 
-    5. Halko N, Martinsson PG, Tropp JA. Finding structure with randomness:
-    probabilistic algorithms for constructing approximate matrix decompositions.
-    SIAM Review 2011; 53(2):217–288. 6. Bui-Thanh T, Burstedde C, Ghattas O, Martin J,
-    Stadler G, Wilcox LC. Extreme-scale UQ for Bayesian inverse problems governed
-    by PDEs. In Proceedings of the International Conference on High Performance
-    Computing, Networking, Storage and Analysis. IEEE Computer Society Press:
-    Portland, OR, 2012; 3. 7. Liberty E, Woolfe F, Martinsson PG, Rokhlin V,
-    Tygert M. Randomized algorithms for the low-rank approximation of matrices.
-    Proceedings of the National Academy of Sciences 2007; 104(51):20167–20172.
+    Returns
+    -------
+    Tuple[NDArrayFloat, NDArrayFloat]
+        eig_vects : NDArrayFloat
+            Approximate eigenvectors, shape (N, k) where k <= r + d depending
+            on ``keep_neg_eigvals``.
+        eig_vals : NDArrayFloat
+            Corresponding eigenvalues as a column vector, shape (k, 1), sorted
+            in decreasing order.
 
-    Output: low-rank approximation  ̃ A of A
+    References
+    ----------
+    .. [1] Halko N, Martinsson PG, Tropp JA. Finding structure with randomness:
+       probabilistic algorithms for constructing approximate matrix
+       decompositions. SIAM Review 2011; 53(2):217-288.
+    .. [2] Bui-Thanh T, Burstedde C, Ghattas O, Martin J, Stadler G, Wilcox LC.
+       Extreme-scale UQ for Bayesian inverse problems governed by PDEs. In
+       Proceedings of the International Conference on High Performance
+       Computing, Networking, Storage and Analysis. IEEE Computer Society
+       Press: Portland, OR, 2012.
+    .. [3] Liberty E, Woolfe F, Martinsson PG, Rokhlin V, Tygert M. Randomized
+       algorithms for the low-rank approximation of matrices. Proceedings of
+       the National Academy of Sciences 2007; 104(51):20167-20172.
     """
     # Initiate random matrix
-    Omega = np.random.default_rng(2023).normal(0, size=(A.shape[1], r + d))
+    _random_state = check_random_state(random_state)
+    Omega = _random_state.normal(loc=0.0, scale=1.0, size=(A.shape[1], r + d))
     # Sample column space
     Y = Binv @ A @ Omega
     # Orthogonalize column samples alternatively msg_stable
@@ -205,9 +249,9 @@ def ensemble_dot(X1: NDArrayFloat, X2: NDArrayFloat) -> NDArrayFloat:
     Parameters
     ----------
     X1 : NDArrayFloat
-        First ensemble of vectors with shape $(N_{\mathrm{s}}, N_{\mathm{e}})$.
+        First ensemble of vectors with shape $(N_{\mathrm{s}}, N_{\mathrm{e}})$.
     X2 : NDArrayFloat
-        First ensemble of vectors with shape $(N_{\mathrm{s}}, N_{\mathm{e}})$.
+        First ensemble of vectors with shape $(N_{\mathrm{s}}, N_{\mathrm{e}})$.
 
     Returns
     -------
