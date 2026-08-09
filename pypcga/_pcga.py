@@ -98,7 +98,8 @@ class InternalState:
         """
         Return the cR predictive model-checking statistic at the best iteration.
 
-        Not yet implemented (planned for v0.3.0) -- currently always returns NaN.
+        See :meth:`PCGA._compute_cR`. Like `Q2_best`, should be close to 1.0
+        for a well-specified covariance model.
         """
         return self.cR_seq[self.iter_best - 1]
 
@@ -115,7 +116,8 @@ class InternalState:
         """
         Return the cR predictive model-checking statistic at the current iteration.
 
-        Not yet implemented (planned for v0.3.0) -- currently always returns NaN.
+        See :meth:`PCGA._compute_cR`. Like `Q2_cur`, should be close to 1.0
+        for a well-specified covariance model.
         """
         return self.cR_seq[-1]
 
@@ -861,13 +863,166 @@ class PCGA:
             return np.sqrt(residuals.T.dot(self.cov_obs.solve(residuals)) / self.d_dim)
         return np.linalg.norm(residuals, axis=0) / np.sqrt(self.d_dim)
 
+    def _get_projected_model_singular_values(
+        self, HZ: NDArrayFloat, U_data: NDArrayFloat
+    ) -> NDArrayFloat:
+        r"""
+        Singular values of the model sensitivity HZ, projected orthogonal to
+        the drift sensitivity HX.
+
+        These singular values are the building block for the cR
+        model-checking statistic (see :meth:`_compute_cR`): they are the
+        (approximate) square roots of the nonzero eigenvalues of
+        :math:`P (H Q H^T) P`, where :math:`P = I - U_{\mathrm{data}}
+        U_{\mathrm{data}}^T` projects onto the orthogonal complement of the
+        column space of `HX` (i.e. removes the directions explained by the
+        unknown drift coefficients `beta`), and :math:`H Q H^T \approx (HZ)
+        (HZ)^T` is the low-rank approximation of the simulated-data
+        covariance implied by the `n_pc`-truncated prior.
+
+        Parameters
+        ----------
+        HZ : NDArrayFloat
+            Jacobian-vector products with the prior sqrt-covariance factor
+            `Z`, shape (n_obs, n_pc).
+        U_data : NDArrayFloat
+            Orthonormal basis for the column space of `HX` (the "pre-
+            posterior data space"), shape (n_obs, p).
+
+        Returns
+        -------
+        NDArrayFloat
+            The largest ``min(n_pc, n_obs - p)`` singular values of ``P @
+            HZ``, in decreasing order.
+        """
+        p_hz = HZ - U_data @ (U_data.T @ HZ)
+        sigma = np.linalg.svd(p_hz, compute_uv=False)
+        n_keep = min(self.Q.n_pc, self.d_dim - self.drift.beta_dim)
+        return sigma[:n_keep]
+
+    def _compute_cR(
+        self,
+        Q2_all: NDArrayFloat,
+        sigma_cR: NDArrayFloat,
+        inflations: NDArrayFloat,
+    ) -> NDArrayFloat:
+        r"""
+        Compute the cR predictive model-checking statistic.
+
+        Follows Kitanidis, P.K. (1991), "Orthonormal residuals in
+        geostatistics: Model criticism and parameter estimation",
+        Mathematical Geology, 23(5), 741-758 (see also
+        :cite:`kitanidisIntroductionGeostatisticsApplications1997`, of which
+        the Q2 statistic already computed elsewhere in this module is
+        Eq. 6.67). Like Q2, cR should be close to 1.0 for a well-specified
+        covariance model. While Q2 is an average of the squared orthonormal
+        residuals, cR additionally weighs in the *spread* of the data
+        covariance's eigenvalues: it is the product of Q2 with the geometric
+        mean of the eigenvalues of :math:`\Xi = H Q H^T + \mathrm{inflation}
+        \cdot R`, restricted (projected) to the ``n_obs - p``-dimensional
+        space orthogonal to the drift sensitivity `HX` (since `p` degrees of
+        freedom are used up estimating the unknown drift coefficients
+        `beta`):
+
+        .. math::
+
+            cR = Q2 \cdot \exp\left(
+                \frac{1}{n_{\mathrm{obs}} - p}
+                \sum_i \log(\lambda_i)
+            \right)
+
+        where :math:`\lambda_i` are the eigenvalues of the projected
+        :math:`\Xi`. Since :math:`H Q H^T` is only rank `n_pc` (the number of
+        principal components retained from the prior), only the first
+        ``min(n_pc, n_obs - p)`` of these eigenvalues get a contribution from
+        the model term (``sigma_cR ** 2``, see
+        :meth:`_get_projected_model_singular_values`); the remaining
+        ``n_obs - p - n_pc`` eigenvalues are pure measurement noise,
+        ``inflation * R``.
+
+        Note
+        ----
+        Unlike Q2, this raw formula is **not invariant to the physical units**
+        of `obs`/`R`/`Q`: the eigenvalues :math:`\lambda_i` carry variance
+        units, so rescaling the problem (e.g. Pa to kPa) rescales cR by the
+        square of that factor even for a perfectly well-specified model.
+        Since `dof = n_obs - p` is normally much larger than `n_pc`, most of
+        the `dof` eigenvalues averaged above are just ``inflation * R``, so
+        in that common regime ``cR ~ Q2 * inflation * mean(R)`` -- i.e. cR's
+        magnitude mostly just reflects the numeric scale of `R`, not model
+        fit. To keep the "close to 1.0" interpretation meaningful regardless
+        of units, this implementation reports ``cR / mean(R)`` rather than
+        the raw literal formula above. This only rescales every candidate's
+        cR by the same constant, so it preserves their relative ordering (a
+        larger raw cR stays larger); what it changes -- and the reason for
+        doing it -- is that "how close to 1.0" specifically is not
+        meaningful under the raw, unit-dependent formula, since a change of
+        units alone can move cR arbitrarily far from 1 even for a correct
+        model. Dividing by `mean(R)` removes that unit-dependence.
+
+        This also assumes (or approximates, if not) that `R` is homoscedastic
+        (constant measurement-error variance): the noise-only eigenvalues
+        use the mean of `R`'s diagonal as a representative value, since
+        diagonalizing `R` exactly in the same rotated (projected) basis as
+        the model term would require an additional, more expensive
+        eigendecomposition. This matches Kitanidis's original derivation
+        exactly when `R` is homoscedastic, and is an approximation otherwise.
+
+        Parameters
+        ----------
+        Q2_all : NDArrayFloat
+            Q2 statistic for each candidate inflation factor, shape (k,).
+        sigma_cR : NDArrayFloat
+            Singular values from :meth:`_get_projected_model_singular_values`,
+            shape (min(n_pc, n_obs - p),).
+        inflations : NDArrayFloat
+            Observation-error covariance inflation factor for each candidate,
+            shape (k,).
+
+        Returns
+        -------
+        NDArrayFloat
+            The (unit-normalized) cR statistic for each candidate, shape (k,).
+        """
+        n = self.d_dim
+        p = self.drift.beta_dim
+        dof = n - p
+
+        r_diag = self.cov_obs.get_diagonal()
+        r_mean = float(np.mean(r_diag))
+        if not np.allclose(r_diag, r_diag[0]):
+            self.loginfo(
+                "cR: observation-error covariance is not homoscedastic; "
+                "using the mean measurement-error variance as a "
+                "representative eigenvalue for the noise-only directions "
+                "(approximation)."
+            )
+
+        n_pc_eff = sigma_cR.size
+
+        # eigenvalues of the projected Xi = HQH^T + inflation*R for each
+        # candidate inflation factor, shape (k, dof)
+        eigvals_reduced = np.outer(inflations, np.full(dof, r_mean))
+        eigvals_reduced[:, :n_pc_eff] += sigma_cR**2
+
+        # temporary numerical safety floor (mirrors the original
+        # implementation): a near-singular Xi should not blow up log().
+        eigvals_reduced[eigvals_reduced <= 0] = 1.0e-16
+
+        cR_raw = Q2_all * np.exp(np.mean(np.log(eigvals_reduced), axis=1))
+
+        # Normalize by the mean observation-error variance so cR is
+        # dimensionless and comparable to 1.0 regardless of the physical
+        # units of obs/R/Q (see Note above).
+        return cR_raw / r_mean
+
     def jac_mat(
         self, s_cur: NDArrayFloat, simul_obs: NDArrayFloat, Z: NDArrayFloat
     ) -> Tuple[
         NDArrayFloat,
         NDArrayFloat,
         NDArrayFloat,
-        Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat],
+        NDArrayFloat,
     ]:
         m: int = self.s_dim
         p: int = self.drift.beta_dim
@@ -897,7 +1052,7 @@ class PCGA:
         elif p > 1:
             from scipy.linalg import svd
 
-            U_data: Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat] = svd(
+            U_data: NDArrayFloat = svd(
                 HX, full_matrices=False, compute_uv=True, lapack_driver="gesdd"
             )[0]
         else:  # point prior
@@ -934,7 +1089,12 @@ class PCGA:
         start1: float = time()
         HX, HZ, Hs, U_data = self.jac_mat(s_cur, simul_obs, Z)
 
-        # Compute eig(P*HQHT*P) approximately by svd(P*HZ)
+        # Compute eig(P*HQHT*P) approximately by svd(P*HZ). This only depends
+        # on the current linearization (HZ, U_data), not on the observation-
+        # error inflation factor, so it is computed once and reused below for
+        # every LM candidate's cR statistic (see _compute_cR).
+        sigma_cR = self._get_projected_model_singular_values(HZ, U_data)
+
         start2 = time()
 
         self.loginfo(
@@ -950,12 +1110,6 @@ class PCGA:
         beta_all = np.zeros((p, self.n_internal_loops), dtype=np.float64)
         s_hat_all = np.zeros((m, self.n_internal_loops), dtype=np.float64)
         Q2_all = np.zeros((self.n_internal_loops), dtype=np.float64)
-        # cR (a second predictive model-checking statistic, see
-        # kitanidisIntroductionGeostatisticsApplications1997) is not yet
-        # implemented (planned for v0.3.0, see display_objfun). Use NaN
-        # rather than 0.0 so it isn't mistaken for a real, computed value by
-        # anyone reading `istate.cR_seq` / `istate.best_cR` directly.
-        cR_all = np.full((self.n_internal_loops), np.nan, dtype=np.float64)
 
         # Call a different internal iteration routine to solve the linear system.
         if self.is_direct_solve:
@@ -1038,6 +1192,7 @@ class PCGA:
 
         # 6.67 in kitanidisIntroductionGeostatisticsApplications1997.
         Q2_all[:] = np.dot(b[:n].T, xi_all) / (n - p)
+        cR_all = self._compute_cR(Q2_all, sigma_cR, self.cov_obs_inflation_factors)
 
         # if lm is off, this will always be True
         is_valid_s_hat = np.invert(self.is_s_violate_lm_bounds(s_hat_all))
@@ -1060,6 +1215,12 @@ class PCGA:
         beta_hat_all = beta_all[:, is_valid_s_hat]
         s_hat_all = s_hat_all[:, is_valid_s_hat]
         valid_inflations = self.cov_obs_inflation_factors[is_valid_s_hat]
+        # Q2_all/cR_all must be filtered the same way: best_obj_idx below is
+        # computed in this filtered index space, and indexing the original,
+        # unfiltered arrays with it would silently select the wrong
+        # candidate's Q2/cR whenever any candidate is dropped above.
+        Q2_all = Q2_all[is_valid_s_hat]
+        cR_all = cR_all[is_valid_s_hat]
 
         # evaluate solutions
         if self.is_lm:
@@ -1315,6 +1476,8 @@ class PCGA:
         obj: Optional[float] = None,
         res: Optional[float] = None,
         is_beta: bool = True,
+        Q2: Optional[float] = None,
+        cR: Optional[float] = None,
     ) -> None:
         if n_iter != 0:
             self.loginfo(f"== iteration {n_iter + 1:d} summary ==")
@@ -1331,6 +1494,10 @@ class PCGA:
                 dat["objective function"] = obj
             else:
                 dat["objective function (no beta)"] = obj
+        if Q2 is not None:
+            dat["predictive model checking Q2 (should be close to 1.0)"] = Q2
+        if cR is not None:
+            dat["predictive model checking cR (should be close to 1.0)"] = cR
         if res is not None:
             dat[f"relative L2-norm diff btw sol {n_iter:d} and sol {n_iter + 1:d}"] = (
                 res
@@ -1487,7 +1654,15 @@ class PCGA:
             obj = self.objective_function(s_cur, beta_cur, simul_obs_cur).item()
 
             self.display_objfun(
-                loss_ls, simul_obs_init.size, rmse, n_rmse, n_iter, obj=obj, res=res
+                loss_ls,
+                simul_obs_init.size,
+                rmse,
+                n_rmse,
+                n_iter,
+                obj=obj,
+                res=res,
+                Q2=self.istate.Q2_cur,
+                cR=self.istate.cR_cur,
             )
 
             if res < self.restol:
@@ -1591,9 +1766,8 @@ class PCGA:
             " (should be as close to 1.0 as possible.)"
         )
         self.loginfo(
-            # f"- Final cR = {self.istate.best_cR:.3e}
-            # (should be as small as possible.)"
-            "- Final cR = Not implemented (planned for v0.3.0)"
+            f"- Final predictive model checking cR = {self.istate.best_cR:.3e}"
+            " (should be as close to 1.0 as possible.)"
         )
 
         return (
