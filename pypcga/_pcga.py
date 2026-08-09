@@ -1050,7 +1050,7 @@ class PCGA:
                 "LM candidates)"
             )
 
-        self.loginfo(f"{n_valid:.d} objective value evaluations")
+        self.loginfo(f"{n_valid} objective value evaluations")
 
         # objective function for all vectors
         objs: NDArrayFloat = self.objective_function(
