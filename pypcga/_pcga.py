@@ -497,6 +497,10 @@ class PCGA:
         self.cov_obs_inflation_factors = self.get_cov_obs_inflation_factors()
         self.logger: Optional[logging.Logger] = logger
 
+        # NOTE: HX, HZ, Hs, invA_as_linop and simul_obs_init are tracked on
+        # `self.istate` (InternalState) rather than as separate slots here,
+        # since they are part of the mutable solver-run state.
+
         ##### Optimization
         self.display_init_parameters()
 
@@ -627,6 +631,92 @@ class PCGA:
             return 10 ** (np.linspace(0.0, np.log10(self.alphamax_lm), self.max_it_lm))
         return np.array([1.0])
 
+    def _perturb_ensemble(
+        self,
+        x: NDArrayFloat,
+        s: NDArrayFloat,
+        eps: float,
+        delta: Optional[float] = None,
+    ) -> Tuple[NDArrayFloat, NDArrayFloat]:
+        """
+        Build the ensemble of perturbed points used for finite-difference Jacobians.
+
+        For each column (direction) ``x[:, i]``, compute a perturbation step
+        size ``deltas[i]`` and overwrite ``x[:, i]`` in place with the
+        perturbed point ``s + deltas[i] * x[:, i]``.
+
+        If `delta` is None, NaN, or 0, the step size is chosen per-direction
+        following the adaptive heuristic of Brown and Saad [1990]; a floor of
+        ``sqrt(eps)`` is used whenever the heuristic would otherwise yield
+        exactly zero (which happens when `s` and/or the perturbation
+        direction are zero). Otherwise, the fixed step size `delta` is used
+        for every direction.
+
+        Parameters
+        ----------
+        x : NDArrayFloat
+            Ensemble of perturbation directions, shape (m, nruns). Modified
+            in place: on return, each column holds the perturbed point.
+        s : NDArrayFloat
+            Current point around which to perturb, shape (m, 1).
+        eps : float
+            Relative perturbation size used by the Brown & Saad heuristic.
+        delta : Optional[float], optional
+            Fixed step size to use for every direction instead of the
+            adaptive heuristic. By default None (use the adaptive heuristic).
+
+        Returns
+        -------
+        Tuple[NDArrayFloat, NDArrayFloat]
+            x : the perturbed ensemble, shape (m, nruns) (same array object
+                as the input `x`, returned for convenience).
+            deltas : the per-direction step sizes used, shape (nruns, 1).
+        """
+        nruns = np.size(x, 1)
+        deltas = np.zeros((nruns, 1), dtype="d")
+
+        if delta is None or isnan(delta) or delta == 0:
+            # Brown and Saad [1990] adaptive step size, vectorized over
+            # columns instead of looping in Python.
+            mag = s.T @ x  # (1, nruns)
+            absmag = np.abs(s).T @ np.abs(x)  # (1, nruns)
+            signmag = np.where(mag >= 0, 1.0, -1.0)  # (1, nruns)
+            norms = np.linalg.norm(x, axis=0, keepdims=True)  # (1, nruns)
+
+            deltas[:, 0] = (
+                signmag
+                * sqrt(eps)
+                * np.maximum(np.abs(mag), absmag)
+                / ((norms + np.finfo(float).eps) ** 2)
+            ).ravel()
+
+            # s = 0 or x[:, i] = 0 -> the heuristic yields exactly zero;
+            # fall back to sqrt(eps) for those directions only.
+            for i in np.flatnonzero(deltas[:, 0] == 0):
+                self.loginfo(
+                    "%d-th delta: signmag %g, eps %g, max abs %g, norm %g"
+                    % (
+                        i,
+                        signmag[0, i],
+                        eps,
+                        max(abs(mag[0, i]), absmag[0, i]),
+                        norms[0, i] ** 2,
+                    )
+                )
+                deltas[i, 0] = sqrt(eps)
+                self.loginfo(
+                    f"{i}-th delta: assigned as sqrt(eps) - {deltas[i, 0]:.2e}",
+                )
+                # raise ValueError('delta is zero? - plz check your
+                # s_init is within a reasonable range')
+        else:
+            deltas[:, 0] = delta
+
+        # reuse storage x by updating x, in one vectorized assignment
+        x[:, :] = s + deltas.T * x
+
+        return x, deltas
+
     def jac_vect(self, x, s, simul_obs, eps, delta=None):
         """
         Jacobian times Matrix (Vectors) in Parallel
@@ -634,54 +724,7 @@ class PCGA:
         """
         nruns = np.size(x, 1)
 
-        # TODO: create a function perturb x (make an ensemble of perturbed values)
-        # And test the function outside the loop
-        deltas = np.zeros((nruns, 1), "d")
-
-        if delta is None or isnan(delta) or delta == 0:
-            for i in range(nruns):
-                mag = np.dot(s.T, x[:, i : i + 1])
-                absmag = np.dot(abs(s.T), abs(x[:, i : i + 1]))
-                if mag >= 0:
-                    signmag = 1.0
-                else:
-                    signmag = -1.0
-
-                deltas[i] = (
-                    signmag
-                    * sqrt(eps)
-                    * (max(abs(mag), absmag))
-                    / ((np.linalg.norm(x[:, i : i + 1]) + np.finfo(float).eps) ** 2)
-                )
-
-                if deltas[i] == 0:  # s = 0 or x = 0
-                    self.loginfo(
-                        "%d-th delta: signmag %g, eps %g, max abs %g, norm %g"
-                        % (
-                            i,
-                            signmag,
-                            eps,
-                            (max(abs(mag), absmag)),
-                            (np.linalg.norm(x) ** 2),
-                        )
-                    )
-
-                    deltas[i] = sqrt(eps)
-
-                    self.loginfo(
-                        f"{i}-th delta: assigned as sqrt(eps) - {deltas[i]:.2e}",
-                    )
-                    # raise ValueError('delta is zero? - plz check your
-                    # s_init is within a reasonable range')
-
-                # reuse storage x by updating x
-                x[:, i : i + 1] = s + deltas[i] * x[:, i : i + 1]
-
-        else:
-            for i in range(nruns):
-                deltas[i] = delta
-                # reuse storage x by updating x
-                x[:, i : i + 1] = s + deltas[i] * x[:, i : i + 1]
+        x, deltas = self._perturb_ensemble(x, s, eps, delta)
 
         simul_obs_purturbation = self.forward_model(x)
 
@@ -695,13 +738,7 @@ class PCGA:
                 )
             )
 
-        Jxs = np.zeros_like(simul_obs_purturbation)
-
-        # solve Hx HZ HQT
-        for i in range(nruns):
-            Jxs[:, i : i + 1] = np.true_divide(
-                (simul_obs_purturbation[:, i : i + 1] - simul_obs), deltas[i]
-            )
+        Jxs = np.true_divide(simul_obs_purturbation - simul_obs, deltas.T)
 
         return Jxs
 
@@ -1481,33 +1518,49 @@ class PCGA:
 
             obj_old = copy.copy(obj)
 
-            # TODO: A posteriori estimation should match the best estimation
-
-            # need to use HZ and HX here !
-            # assume linesearch result close to the current solution
-            start = time()
-            if self.is_direct_solve:
-                self.loginfo(
-                    "start direct posterior variance computation "
-                    "- this option works for O(nobs) ~ 100"
-                )
-                self.post_diagv = self._compute_post_cov_diag(
-                    self.istate.HZ,
-                    self.istate.HX,
-                    self.cov_obs,
-                    inflation_cur,
-                    is_direct_solve=True,
-                )
+            # Only recompute the posterior variance when this iteration
+            # actually produced a new best estimate (case 1 above, or case 2
+            # with a successful line search). self.istate.HZ/HX (set by the
+            # linear_iteration call inside _gauss_newton_step) and
+            # inflation_cur are the Jacobian/inflation that produced s_cur;
+            # if s_cur was not accepted as the new best -- e.g. the "wait for
+            # one more iteration" grace pass below, where line search failed
+            # but we haven't broken out yet -- then self.istate.s_best is
+            # unchanged from a previous iteration, and recomputing post_diagv
+            # here would attribute posterior uncertainty to the wrong
+            # solution. The posterior variance already stored from that
+            # earlier best iteration remains the correct one to report.
+            if self.istate.iter_best == n_iter + 1:
+                # need to use HZ and HX here !
+                # assume linesearch result close to the current solution
+                start = time()
+                if self.is_direct_solve:
+                    self.loginfo(
+                        "start direct posterior variance computation "
+                        "- this option works for O(nobs) ~ 100"
+                    )
+                    self.post_diagv = self._compute_post_cov_diag(
+                        self.istate.HZ,
+                        self.istate.HX,
+                        self.cov_obs,
+                        inflation_cur,
+                        is_direct_solve=True,
+                    )
+                else:
+                    self.loginfo("start posterior variance computation")
+                    self.post_diagv = self._compute_post_cov_diag(
+                        self.istate.HZ,
+                        self.istate.HX,
+                        self.cov_obs,
+                        inflation_cur,
+                        is_direct_solve=False,
+                    )
+                self.loginfo(f"posterior diag. computed in {(time() - start):.3e} s")
             else:
-                self.loginfo("start posterior variance computation")
-                self.post_diagv = self._compute_post_cov_diag(
-                    self.istate.HZ,
-                    self.istate.HX,
-                    self.cov_obs,
-                    inflation_cur,
-                    is_direct_solve=False,
+                self.loginfo(
+                    "skip posterior variance computation "
+                    "(no new best solution at this iteration)"
                 )
-            self.loginfo(f"posterior diag. computed in {(time() - start):.3e} s")
             # if self.iter_save:
             #     np.savetxt("./postv.txt", self.post_diagv)
 
