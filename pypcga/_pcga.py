@@ -800,14 +800,14 @@ class PCGA:
 
         def fun(beta: NDArrayFloat) -> float:
             """-X^TC^{-1}(s-Xb)"""
-            smxb = (s_cur - np.dot(X, np.atleast_2d(beta))).ravel()
+            smxb = (s_cur - np.dot(X, beta.reshape(-1, 1))).ravel()
             return float(0.5 * smxb.T.dot(self.Q.solve(smxb)).item())
 
         # We solve with a newton to find the optimal beta
         def jac_wrt_beta(beta: NDArrayFloat) -> NDArrayFloat:
             """-X^TC^{-1}(s-Xb)"""
-            smxb = (s_cur - np.dot(X, np.atleast_2d(beta))).ravel()
-            return -X.T.dot(self.Q.solve(smxb))
+            smxb = (s_cur - np.dot(X, beta.reshape(-1, 1))).ravel()
+            return (-X.T.dot(self.Q.solve(smxb))).ravel()
 
         hess = X.T.dot(self.Q.solve(X))
 

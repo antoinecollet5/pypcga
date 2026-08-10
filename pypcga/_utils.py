@@ -122,17 +122,17 @@ def mgs_stable(
 
     if logger is not None:
         # Number of re-orthogonalization passes performed for each column
-        logger.info("Re-orthogonalization counts per column: ", reorth)
+        logger.info(f"Re-orthogonalization counts per column: {reorth}")
 
         # Verify Q*R = Y
-        logger.info("||QR-Y|| is ", np.linalg.norm(np.dot(q, r) - Z, 2))
+        logger.info(f"||QR-Y|| is {np.linalg.norm(np.dot(q, r) - Z, 2)}")
 
         # Verify Q'*A*Q = I
         T = np.dot(q.T, Aq)
-        logger.info("||Q^TAQ-I|| is ", np.linalg.norm(T - np.eye(n, dtype="d"), ord=2))
+        logger.info(f"||Q^TAQ-I|| is {np.linalg.norm(T - np.eye(n, dtype='d'), ord=2)}")
 
         # verify Q'AY = R
-        logger.info("||R - Q^TAY|| is ", np.linalg.norm(r - np.dot(Aq.T, Z), 2))
+        logger.info(f"||R - Q^TAY|| is {np.linalg.norm(r - np.dot(Aq.T, Z), 2)}")
 
         # Verify YR^{-1} = Q
         val = np.inf
@@ -140,7 +140,7 @@ def mgs_stable(
             val = np.linalg.norm(np.linalg.solve(r.T, Z.T).T - q, 2)
         except sp.linalg.LinAlgError:
             logger.info("YR^{-1}-Q is singular")
-        logger.info("||YR^{-1}-Q|| is ", val)
+        logger.info(f"||YR^{{-1}}-Q|| is {val}")
 
     return q, Aq, r
 
