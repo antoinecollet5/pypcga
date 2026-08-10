@@ -16,7 +16,6 @@ NDArrayBool = npt.NDArray[np.bool_]
 def mgs_stable(
     A: Union[NDArrayFloat, LinearOperator],
     Z: NDArrayFloat,
-    verbose=False,
     logger: Optional[logging.Logger] = None,
 ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
     """
@@ -72,7 +71,7 @@ def mgs_stable(
     >>> import numpy as np
     >>> A = np.diag(np.arange(1,101))
     >>> Z = np.random.randn(100,10)
-    >>> q, Aq, r = mgs_stable(A, Z, verbose = True)
+    >>> q, Aq, r = mgs_stable(A, Z)
 
     """
 
@@ -226,7 +225,7 @@ def ghep(
     # Sample column space
     Y = Binv @ A @ Omega
     # Orthogonalize column samples alternatively msg_stable
-    Qy = mgs_stable(B, Y, verbose=False)[0]
+    Qy = mgs_stable(B, Y)[0]
     # SVD of k × k compressed row sample matrix
     if single_pass:
         s, Z = sp.linalg.eigh(Qy.T @ Y @ sp.linalg.pinv(Qy.T @ Omega), lower=True)
