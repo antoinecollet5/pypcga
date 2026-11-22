@@ -5,7 +5,7 @@ import numpy as np
 import pypcga
 import pytest
 
-from .conftest import N_PC, S_DIM, quadratic_forward_model
+from .conftest import N_PC, S_DIM, quadratic_forward_model  # ty: ignore[import-not-found]
 
 
 def _make_kwargs(n_obs: int, **overrides):
@@ -101,7 +101,7 @@ def test_display_init_parameters_with_lm(caplog) -> None:
 def test_get_v0() -> None:
     solver = pypcga.PCGA(**_make_kwargs(n_obs=6, random_state=0))
     v0 = solver.get_v0(5)
-    assert v0.shape == (5,)  # ty:ignore[unresolved-attribute]
+    assert np.shape(v0) == (5,)
 
     # get_v0's `random_state is None` branch is unreachable through normal
     # construction (check_random_state never returns None), but the method
