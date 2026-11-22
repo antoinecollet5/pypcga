@@ -3,7 +3,7 @@ import numpy as np
 import pypcga
 from pypcga._pcga import PCGA
 
-from .conftest import (  # ty: ignore[unresolved-import]
+from .conftest import (  # ty: ignore[import-not-found]
     N_PC,
     S_DIM,
     quadratic_forward_model,
