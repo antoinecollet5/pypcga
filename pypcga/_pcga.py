@@ -12,21 +12,21 @@ import copy
 import logging
 import multiprocessing
 import warnings
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import isnan, sqrt
 from time import time
-from typing import Any, Callable, Generator, Iterator, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import covmats
 import numpy as np
 import scipy as sp
-from scipy._lib._util import check_random_state
 from scipy.sparse.linalg import LinearOperator, gmres
 
 from pypcga._utils import (
     NDArrayBool,
     NDArrayFloat,
+    check_random_state,
     ensemble_dot,
     ghep,
 )
@@ -77,8 +77,15 @@ class InternalState:
     Q2_seq: List[float] = field(default_factory=lambda: [])
     cR_seq: List[float] = field(default_factory=lambda: [])
     iter_best: int = 0
-    status: str = "ILDE."
+    status: str = "IDLE."
     is_success: bool = False
+    # Jacobian-related products (HX, HZ, Hs) of the most recent linearization.
+    # Promoted to HX/HZ/Hs above only when that linearization produced a new
+    # best solution, so that the posterior covariance is always consistent
+    # with `s_best` and `best_inflation`.
+    last_jac: Optional[Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]] = field(
+        default=None, repr=False
+    )
 
     @property
     def best_obj(self) -> float:
@@ -89,9 +96,18 @@ class InternalState:
         """
         return self.obj_seq[self.iter_best]
 
+    def _get_best(self, seq: List[float]) -> float:
+        """Return the value of `seq` at the best iteration (NaN if none)."""
+        # iter_best == 0 means that no iteration improved on the initial
+        # guess: there is no associated Q2/cR/inflation (seq[-1] would
+        # silently return the value of an unrelated, rejected iteration).
+        if self.iter_best == 0 or len(seq) < self.iter_best:
+            return float("nan")
+        return seq[self.iter_best - 1]
+
     @property
     def Q2_best(self) -> float:
-        return self.Q2_seq[self.iter_best - 1]
+        return self._get_best(self.Q2_seq)
 
     @property
     def best_cR(self) -> float:
@@ -101,11 +117,11 @@ class InternalState:
         See :meth:`PCGA._compute_cR`. Like `Q2_best`, should be close to 1.0
         for a well-specified covariance model.
         """
-        return self.cR_seq[self.iter_best - 1]
+        return self._get_best(self.cR_seq)
 
     @property
     def best_inflation(self) -> float:
-        return self.inflation_seq[self.iter_best - 1]
+        return self._get_best(self.inflation_seq)
 
     @property
     def Q2_cur(self) -> float:
@@ -131,72 +147,85 @@ class InvALinOp(LinearOperator):
         cov_obs: covmats.CovarianceMatrix,
         n_obs: int,
         beta_dim: int,
+        HZ: Optional[NDArrayFloat] = None,
+        inflation: float = 1.0,
     ) -> None:
         """Initialize the instance."""
         super().__init__(dtype=np.float64, shape=(n_obs + beta_dim, n_obs + beta_dim))
-        self.inflation: float = 1.0
         self.n_obs: int = n_obs
         self.beta_dim: int = beta_dim
         self.HX: NDArrayFloat = HX
+        # Only kept as a reference to know which linearization this
+        # approximation was built from (see PCGA._get_invA_for).
+        self.HZ: Optional[NDArrayFloat] = HZ
         self.HZZTHT_eig_vects: NDArrayFloat = HZZTHT_eig_vects
         self.HZZTHT_eig_vals: NDArrayFloat = HZZTHT_eig_vals
         self.cov_obs = cov_obs
+        self.update_inflation_factor(inflation)
 
     def update_inflation_factor(self, value: float) -> None:
-        """Update the inflation factor."""
-        self.inflation = value
+        """
+        Update the inflation factor.
+
+        The inflation-dependent quantities (the diagonal correction of
+        Psi^{-1} and the inverse of the small (p x p) Schur complement S) are
+        precomputed here once, instead of at every matrix-vector product.
+        """
+        self.inflation: float = float(value)
+        self._dvec = self._get_dvec(self.inflation)
+        S = self.HX.T @ self.inv_psi(self.HX, self.inflation)
+        # p is usually between 1 and 3 so inverting S directly is fine.
+        self._invS = np.linalg.inv(np.atleast_2d(S))
+
+    def with_inflation(self, value: float) -> "InvALinOp":
+        """
+        Return a shallow copy of the operator for another inflation factor.
+
+        The (potentially large) eigen-decomposition arrays are shared, only
+        the small inflation-dependent caches are recomputed. Unlike
+        :meth:`update_inflation_factor`, the current instance is not
+        mutated, which makes it safe to use from several threads.
+        """
+        if float(value) == self.inflation:
+            return self
+        new = copy.copy(self)
+        new.update_inflation_factor(value)
+        return new
+
+    def _get_dvec(self, inflation: float) -> NDArrayFloat:
+        # lambda / (lambda + alpha) == (lambda / alpha) / (lambda / alpha + 1)
+        lam = self.HZZTHT_eig_vals.ravel()
+        return lam / (lam + inflation)
 
     def inv_psi(self, v: NDArrayFloat, inflation: float) -> NDArrayFloat:
-        Dvec = sp.sparse.diags_array(
-            np.divide(
-                (1.0 / inflation * self.HZZTHT_eig_vals.ravel()),
-                ((1.0 / inflation) * self.HZZTHT_eig_vals.ravel() + 1.0),
-            )
-        )  # (n_pc,)
-
+        """Apply (HQH^T + inflation * R)^{-1} (low rank approximation) to v."""
+        if inflation == getattr(self, "inflation", None):
+            dvec = self._dvec
+        else:
+            dvec = self._get_dvec(inflation)
+        UTv = self.HZZTHT_eig_vects.T @ v
+        if UTv.ndim == 1:
+            DUTv = dvec * UTv
+        else:
+            DUTv = dvec[:, np.newaxis] * UTv
         return (1.0 / inflation) * (
-            self.cov_obs.solve(v)
-            - (self.HZZTHT_eig_vects @ (Dvec @ (self.HZZTHT_eig_vects.T @ v)))
+            self.cov_obs.solve(v) - self.HZZTHT_eig_vects @ DUTv
         )
 
     def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
         # See Eq. 14 in leeScalableSubsurfaceInverse2016.
         # Warning, there is typo for the block 22 of A^{-1}.
         # i.e., it is -S^{-1} instead of -S.
-
-        # (n_obs, 1) vector  -> First part of the multiplication with
-        # block (1, 1) of A^{-1}
-        invPsiv = self.inv_psi(x[: self.n_obs], self.inflation)
-
-        # S is a p by p matrix
-        S = np.dot(self.HX.T, self.inv_psi(self.HX, self.inflation))
-        # So we can invert it directly because p is usually between 1 and 3.
-        invS = np.linalg.inv(S)
-
-        # multiplication with block (2,1) of A^{-1} => S^{-1} \Phi^T \Psi^{-1}
-        invSHXTinvPsiv = invS @ np.dot(self.HX.T, invPsiv)
-
-        # Second part of the multiplication with block (1, 1) of A^{-1}
-        invPsiHXinvSHXTinvPsiv = self.inv_psi(
-            np.dot(self.HX, invSHXTinvPsiv), self.inflation
-        )
-
-        # multiplication with block (1,2) of A^{-1} =>  \Psi^{-1} \Phi^T S^{-1}
-        invPsiHXinvSv1 = self.inv_psi(
-            np.dot(self.HX, invS @ x[self.n_obs :]), self.inflation
-        )
-
-        # multiplication with block (2, 2)
-        invSv1 = invS @ x[self.n_obs :]
-
-        # Gathering the resulting vector.
-        return np.concatenate(
-            (
-                (invPsiv - invPsiHXinvSHXTinvPsiv + invPsiHXinvSv1),
-                (invSHXTinvPsiv - invSv1),
-            ),
-            axis=0,
-        )
+        # With y2 = S^{-1} (HX^T Psi^{-1} x1 - x2), the product reads
+        #   [ Psi^{-1} x1 - Psi^{-1} HX y2 ]
+        #   [ y2                           ]
+        # which only requires two applications of Psi^{-1} (instead of three).
+        x1 = x[: self.n_obs]
+        x2 = x[self.n_obs :]
+        invPsi_x1 = self.inv_psi(x1, self.inflation)
+        y2 = self._invS @ (self.HX.T @ invPsi_x1 - x2)
+        y1 = invPsi_x1 - self.inv_psi(self.HX @ y2, self.inflation)
+        return np.concatenate((y1, y2), axis=0)
 
     def _matmat(self, X: NDArrayFloat) -> NDArrayFloat:
         # _matvec supports matrix multiplication.
@@ -340,17 +369,19 @@ class PCGA:
             since it relies on `forward_model`. But it is the user's responsibility
             to parallelize  `forward_model`. By default False.
         is_direct_solve : bool, optional
-            Whether to solve the saddle point system (Ax = b), see eq 4.53 in (add ref),
-            with:
-                - the direct approach (Cholesky factorization of A), see eq (4.57) in
-                  :cite:`colletAssistedHistoryMatching2024`
-                - or to use the alternative iterative Krylov subspace approach as
-                  described in :cite`saibabaEfficientMethodsLargescale2012,
-                  saibabaFastAlgorithmsGeostatistical2013`.
+            Whether to solve the saddle point system (Ax = b), see eq 4.53 in
+            (add ref), with:
 
-            Using direct solve is practical if the number of observations is around 100
-            or less. Beyond, it is advise to rely on the The default is False
-            (using iterative Kryloc subspace by default).
+            - the direct approach (Cholesky factorization of A), see eq (4.57) in
+              :cite:`colletAssistedHistoryMatching2024`,
+            - or the alternative iterative Krylov subspace approach as described
+              in :cite:`saibabaEfficientMethodsLargescale2012,
+              saibabaFastAlgorithmsGeostatistical2013`.
+
+            Using direct solve is practical if the number of observations is
+            around 100 or less. Beyond, it is advised to rely on the iterative
+            Krylov subspace approach. The default is False (iterative Krylov
+            subspace).
         random_state : Optional[ Union[int, np.random.Generator, np.random.RandomState]]
             Pseudorandom number generator state used to generate resamples.
             If `random_state` is ``None`` (or `np.random`), the
@@ -377,7 +408,15 @@ class PCGA:
         lm_smax : Optional[float], optional
             Maximum LM solution, by default None
         max_it_ls : int, optional
-            Maximum number of iterations when using line search, by default 20.
+            Number of candidate points evaluated (in a single call to
+            `forward_model`) by the line search, by default 20.
+        max_workers_lm : int, optional
+            Maximum number of threads used to solve the `max_it_lm` LM
+            linear systems concurrently. Only applies if `is_lm` is True.
+            Threads are used rather than processes: the work is dominated by
+            BLAS/LAPACK calls which release the GIL, and nothing (in
+            particular `forward_model`) needs to be picklable.
+            By default use all available CPUs.
         maxiter : int, optional
             Maximum Gauss-Newton iterations, by default 10.
         ftarget: Optional[Union[float, Callable]] = None, optional
@@ -402,8 +441,8 @@ class PCGA:
             .. math::
 
                 \mathrm{change} = \dfrac{\left\lVert \mathbf{s}_{\ell+1} -
-                \mathbf{s}_{\ell} \right\rVert^{2}}{\left\lVert
-                \mathbf{s}_{\ell} \right\rVert^{2}}
+                \mathbf{s}_{\ell} \right\rVert}{\left\lVert
+                \mathbf{s}_{\ell} \right\rVert}
 
             by default 1e-2.
         logger: Optional[Logger], optional
@@ -478,10 +517,13 @@ class PCGA:
         # worthwhile when the number of observations (and thus the per-worker
         # forward model cost) is large enough to outweigh the process-startup
         # overhead; for small problems it is not interesting.
-        self.max_workers = max(max_workers_lm, max_it_lm) if is_lm else 1
+        # There is no point in having more workers than LM candidates, and the
+        # user-provided `max_workers_lm` is an upper bound (it used to be
+        # max(max_workers_lm, max_it_lm), which ignored the user limit).
+        self.max_workers = max(1, min(max_workers_lm, max_it_lm)) if is_lm else 1
 
         # keep track of the internal state
-        self.istate = InternalState(s_best=s_init)
+        self.istate = InternalState(s_best=self.s_init)
         # Random state for v0 vector used by eigsh and svds
         self.random_state = check_random_state(random_state)
 
@@ -531,10 +573,10 @@ class PCGA:
             "Number of principal components (n_pc)": self.Q.n_pc,
             "Maximum Gauss-Newton iterations": self.maxiter,
             "Machine eps (delta = sqrt(eps))": self.eps,
-            "Minimum model change (restol)": np.round(self.restol, 3),
-            "Minimum obj fun change (ftol)": np.round(self.ftol, 3),
+            "Minimum model change (restol)": f"{self.restol:.3e}",
+            "Minimum obj fun change (ftol)": f"{self.ftol:.3e}",
             "Target obj fun (ftarget)": (
-                np.round(self.ftarget, 3) if self.ftarget is not None else None
+                f"{self.ftarget:.3e}" if self.ftarget is not None else None
             ),
             "Levenberg-Marquardt (is_lm)": self.is_lm,
         }
@@ -860,7 +902,11 @@ class PCGA:
         return size = Ne
         """
         if is_normalized:
-            return np.sqrt(residuals.T.dot(self.cov_obs.solve(residuals)) / self.d_dim)
+            # ensemble_dot -> one value per column (the full Gram matrix used
+            # to be returned for Ne > 1).
+            return np.sqrt(
+                ensemble_dot(residuals, self.cov_obs.solve(residuals)) / self.d_dim
+            )
         return np.linalg.norm(residuals, axis=0) / np.sqrt(self.d_dim)
 
     def _get_projected_model_singular_values(
@@ -1041,20 +1087,17 @@ class PCGA:
         HZ = Htemp[:, p : p + n_pc]
         Hs = Htemp[:, p + n_pc : p + n_pc + 1]
 
-        if self.is_save_jac:
-            self.istate.HX = HX
-            self.istate.HZ = HZ
-            self.istate.Hs = Hs
+        # Keep track of the last linearization. It is promoted to
+        # istate.HX/HZ/Hs by `gauss_newton` only if it yields a new best
+        # solution (see InternalState.last_jac).
+        self.istate.last_jac = (HX, HZ, Hs)
 
-        # compute the pre-posterior data space
+        # compute the pre-posterior data space (orthonormal basis of span(HX))
         if p == 1:
             U_data = HX / np.linalg.norm(HX)
         elif p > 1:
-            from scipy.linalg import svd
-
-            U_data: NDArrayFloat = svd(
-                HX, full_matrices=False, compute_uv=True, lapack_driver="gesdd"
-            )[0]
+            # A thin QR is cheaper than an SVD and gives the same column space
+            U_data = np.linalg.qr(HX, mode="reduced")[0]
         else:  # point prior
             raise NotImplementedError
         return HX, HZ, Hs, U_data
@@ -1114,81 +1157,48 @@ class PCGA:
         # Call a different internal iteration routine to solve the linear system.
         if self.is_direct_solve:
             self.loginfo("Use direct solver for saddle-point (cokrigging) system")
-            # Construct HQ directly
-            HQ: NDArrayFloat = np.dot(HZ, Z.T)
 
             def internal_iteration(
-                _inflation,
+                _inflation: float,
             ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
-                return self.internal_iteration_direct(HZ, HX, HQ, b, _inflation)
+                return self.internal_iteration_direct(HZ, HX, Z, b, _inflation)
 
         else:
             self.loginfo(
                 "Use Krylov subspace iterative solver "
                 "for saddle-point (cokrigging) system"
             )
-            self.istate.invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
+            invA_as_linop = self.get_invA_as_linop(HZ, HX, self.cov_obs)
+            self.istate.invA_as_linop = invA_as_linop
 
             def internal_iteration(
-                _inflation,
+                _inflation: float,
             ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
                 return self.internal_iteration_krylov_subspace(
-                    HZ, HX, Z, b, self.istate.invA_as_linop, _inflation
+                    HZ, HX, Z, b, invA_as_linop, _inflation
                 )
 
-        # if LM_smax, LM_smin defined and solution violates them, LM_eval[i] "
-        # "becomes True
-
-        # Single worker (no multi-processing)
+        # Single worker
         if self.max_workers == 1 or self.n_internal_loops == 1:
-            for lm_it, inflation in enumerate(self.cov_obs_inflation_factors):
-                (
-                    xi_all[:, lm_it, None],
-                    s_hat_all[:, lm_it, None],
-                    beta_all[:, lm_it, None],
-                ) = internal_iteration(inflation)
-        # Multi-processing enabled -> only relevant if LM is ON.
-        else:
-            # Function that returns a generator so we can repeat the parameters
-            # used by
-            def get_internal_loop_params(p: Any) -> Callable:
-                def _f() -> Generator[Any, None, None]:
-                    while True:
-                        yield (p)
-
-                return _f
-
-            # perform the calculations in parallel with multiprocessing
-            with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-                if self.is_direct_solve:
-                    results: Iterator[
-                        Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]
-                    ] = executor.map(
-                        self.internal_iteration_direct,
-                        get_internal_loop_params(HZ)(),
-                        get_internal_loop_params(HX)(),
-                        get_internal_loop_params(HQ)(),
-                        get_internal_loop_params(b)(),
-                        self.cov_obs_inflation_factors,
-                    )
-                else:
-                    results = executor.map(
-                        self.internal_iteration_krylov_subspace,
-                        get_internal_loop_params(HZ)(),
-                        get_internal_loop_params(HX)(),
-                        get_internal_loop_params(Z)(),
-                        get_internal_loop_params(b)(),
-                        get_internal_loop_params(self.istate.invA_as_linop)(),
-                        self.cov_obs_inflation_factors,
-                    )
-
+            results = map(internal_iteration, self.cov_obs_inflation_factors)
             # unpack the results
             for lm_it, res in enumerate(results):
-                (
-                    xi_all[:, lm_it, None],
-                    s_hat_all[:, lm_it, None],
-                    beta_all[:, lm_it, None],
-                ) = res
+                xi_all[:, lm_it], s_hat_all[:, lm_it], beta_all[:, lm_it] = (
+                    _r.ravel() for _r in res
+                )
+        # Multi-threading -> only relevant if LM is ON. Threads are enough
+        # since the work is dominated by BLAS/LAPACK calls (GIL released), and
+        # they avoid pickling `self` (incl. Q and forward_model) for each task.
+        else:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                results = list(
+                    executor.map(internal_iteration, self.cov_obs_inflation_factors)
+                )
+            # unpack the results
+            for lm_it, res in enumerate(results):
+                xi_all[:, lm_it], s_hat_all[:, lm_it], beta_all[:, lm_it] = (
+                    _r.ravel() for _r in res
+                )
 
         # 6.67 in kitanidisIntroductionGeostatisticsApplications1997.
         Q2_all[:] = np.dot(b[:n].T, xi_all) / (n - p)
@@ -1275,7 +1285,7 @@ class PCGA:
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
-        HQ: NDArrayFloat,
+        Z: NDArrayFloat,
         b: NDArrayFloat,
         inflation: float,
     ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
@@ -1290,7 +1300,8 @@ class PCGA:
         # Extract components and return final solution
         # x dimension (n+p,1)
         xi, beta = x[: self.n_obs, :], x[self.n_obs :, :]
-        s_hat = (np.dot(self.drift.mat, beta) + np.dot(HQ.T, xi)).reshape(-1, 1)
+        # HQ^T xi = Z (HZ^T xi): avoids building the dense (n_obs, s_dim) HQ.
+        s_hat = (np.dot(self.drift.mat, beta) + Z @ (HZ.T @ xi)).reshape(-1, 1)
 
         # Return three column vectors
         return xi, s_hat, beta
@@ -1304,14 +1315,23 @@ class PCGA:
         invA_as_linop: Optional[InvALinOp],
         inflation: float,
     ) -> Tuple[NDArrayFloat, NDArrayFloat, NDArrayFloat]:
+        # The preconditioner must use the same inflation factor as A. Use a
+        # (cheap, shallow) copy rather than mutating the shared instance, which
+        # may be used concurrently by other threads.
+        precond = (
+            invA_as_linop.with_inflation(inflation)
+            if invA_as_linop is not None
+            else None
+        )
         x = self._solve_iterative_subspace_krylov(
             self.get_A_as_linop(HX, HZ, inflation),  # linear op for matvec and matmat
             b,
-            invA_as_linop,  # preconditioner
+            precond,  # preconditioner
             restart=50,
             atol=1e-10,
             rtol=1e-10,
-            maxiter=self.s_dim,
+            # number of restart cycles, bounded by the system size (n_obs + p)
+            maxiter=self.n_obs + self.drift.beta_dim,
         )
 
         # Extract components and return final solution
@@ -1346,7 +1366,14 @@ class PCGA:
             rtol=rtol,
             callback_type="legacy",
         )
-        # self.loginfo("-- Number of iterations for gmres %g" % (callback.itercount()))
+        if info > 0:
+            msg = (
+                f"GMRES did not converge to the requested tolerance after {info} "
+                f"iterations (last residual: "
+                f"{callback.res[-1] if callback.res else float('nan'):.2e})."
+            )
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+            self.loginfo(msg)
         return x
 
     def get_invA_as_linop(
@@ -1408,13 +1435,13 @@ class PCGA:
             cov_obs,
             InvRLinOp(),
             r=k,
-            d=20,
+            d=min(20, max(n_obs - k, 0)),
             single_pass=False,
             keep_neg_eigvals=False,
             random_state=self.random_state,
         )
 
-        logging.info(
+        self.loginfo(
             f"- 1st eigv : {HZZTHT_eig_vals[0].item():.2e},"
             f"{HZZTHT_eig_vals.size}-th eigv : {HZZTHT_eig_vals[-1].item():.2e}, "
             f"ratio: {(HZZTHT_eig_vals[-1] / HZZTHT_eig_vals[0]).item():.2e}"
@@ -1430,41 +1457,68 @@ class PCGA:
                 "for preconditioner construction."
             )
 
-        # This inflation factor will be updated later
+        # The inflation factor can be changed later with `with_inflation`.
         return InvALinOp(
-            HX, HZZTHT_eig_vects, HZZTHT_eig_vals, cov_obs, n_obs, beta_dim
+            HX, HZZTHT_eig_vects, HZZTHT_eig_vals, cov_obs, n_obs, beta_dim, HZ=HZ
         )
 
-    def line_search(self, s_cur, s_past):
-        n_internal_loops = self.max_it_lm
-        m = self.s_dim
+    def line_search(
+        self, s_cur: NDArrayFloat, s_past: NDArrayFloat
+    ) -> Tuple[NDArrayFloat, NDArrayFloat, float]:
+        """
+        Simple line search between the previous and the current solutions.
 
-        s_hat_all = np.zeros((m, n_internal_loops), "d")
-        # need to remove delta = 0 and 1
-        delta = np.linspace(-0.1, 1.1, n_internal_loops)
-
-        for i in range(n_internal_loops):
-            s_hat_all[:, i : i + 1] = delta[i] * s_past + (1.0 - delta[i]) * s_cur
+        ``max_it_ls`` candidates ``delta * s_past + (1 - delta) * s_cur`` with
+        ``delta`` linearly spaced in [-0.1, 1.1] are evaluated with a single
+        call to `forward_model`, and the one with the lowest (beta-marginalized)
+        objective function is returned.
+        """
+        n_pts = self.max_it_ls
+        delta = np.linspace(-0.1, 1.1, n_pts)
+        # (m, n_pts) ensemble built in one vectorized operation
+        s_hat_all = s_past * delta + s_cur * (1.0 - delta)
 
         self.loginfo("evaluate linesearch solutions")
         simul_obs_all = self.forward_model(s_hat_all)
 
-        # will change assert to valueerror
-        assert np.size(simul_obs_all, 1) == n_internal_loops
-        best_obj = 1.0e20
-
-        for i in range(n_internal_loops):
-            obj = self.objective_function_no_beta(
-                s_hat_all[:, i : i + 1], simul_obs_all[:, i : i + 1]
+        if np.shape(simul_obs_all) != (self.n_obs, n_pts):
+            raise ValueError(
+                f"forward_model returned shape {np.shape(simul_obs_all)}, expected "
+                f"({self.n_obs}, {n_pts}) i.e. (n_obs, max_it_ls)"
             )
 
-            if obj < best_obj:
-                self.loginfo("%d-th solution obj %e (delta %f)" % (i, obj, delta[i]))
-                s_hat = s_hat_all[:, i : i + 1]
-                simul_obs_new = simul_obs_all[:, i : i + 1]
-                best_obj = obj
+        objs = np.array(
+            [
+                self.objective_function_no_beta(
+                    s_hat_all[:, i : i + 1], simul_obs_all[:, i : i + 1]
+                )
+                for i in range(n_pts)
+            ]
+        )
+        # NaN objectives (e.g. failed forward runs) are never selected
+        objs[~np.isfinite(objs)] = np.inf
+        i_best = int(np.argmin(objs))
+        self.loginfo(
+            f"{i_best}-th solution obj {objs[i_best]:e} (delta {delta[i_best]:f})"
+        )
+        return (
+            s_hat_all[:, i_best : i_best + 1],
+            simul_obs_all[:, i_best : i_best + 1],
+            float(objs[i_best]),
+        )
 
-        return s_hat, simul_obs_new, best_obj
+    def get_optimal_beta(self, s_cur: NDArrayFloat) -> NDArrayFloat:
+        """
+        Return the drift coefficients minimizing the regularization term.
+
+        beta = (X^T Q^{-1} X)^{-1} X^T Q^{-1} s, i.e., the beta implicitly
+        used by :meth:`objective_function_no_beta`.
+        """
+        X = self.drift.mat
+        inv_sqrt_l = 1.0 / np.sqrt(np.ravel(self.Q.eig_vals))[:, np.newaxis]
+        invZs = inv_sqrt_l * (self.Q.eig_vects.T @ s_cur)
+        invZX = inv_sqrt_l * (self.Q.eig_vects.T @ X)
+        return np.linalg.solve(invZX.T @ invZX, invZX.T @ invZs).reshape(-1, 1)
 
     def display_objfun(
         self,
@@ -1472,14 +1526,16 @@ class PCGA:
         n_obs: int,
         rmse: float,
         n_rmse: float,
-        n_iter: int = 0,
+        n_iter: Optional[int] = None,
         obj: Optional[float] = None,
         res: Optional[float] = None,
         is_beta: bool = True,
         Q2: Optional[float] = None,
         cR: Optional[float] = None,
     ) -> None:
-        if n_iter != 0:
+        # NOTE: n_iter=0 is the first Gauss-Newton iteration (its header used
+        # to be skipped); None means "not an iteration" (initial/final state).
+        if n_iter is not None:
             self.loginfo(f"== iteration {n_iter + 1:d} summary ==")
 
         dat = {
@@ -1499,9 +1555,8 @@ class PCGA:
         if cR is not None:
             dat["predictive model checking cR (should be close to 1.0)"] = cR
         if res is not None:
-            dat[f"relative L2-norm diff btw sol {n_iter:d} and sol {n_iter + 1:d}"] = (
-                res
-            )
+            _n = 0 if n_iter is None else n_iter
+            dat[f"relative L2-norm diff btw sol {_n:d} and sol {_n + 1:d}"] = res
 
         maxlen = max([len(k) for k in dat]) + 1
         for k, v in dat.items():
@@ -1568,6 +1623,11 @@ class PCGA:
 
         res = 1.0
 
+        # Reset the internal state so that calling run() twice does not mix
+        # (and index into) the sequences of two distinct inversions.
+        self.istate = InternalState(s_best=np.copy(s_init))
+        self.post_diagv = self.prior_s_var
+
         self.loginfo("##### 2. Start PCGA Inversion #####")
         self.loginfo("-- evaluate initial solution")
 
@@ -1624,8 +1684,12 @@ class PCGA:
                         "perform simple linesearch due to no progress in obj value"
                     )
                     s_cur, simul_obs_cur, obj = self.line_search(s_cur, s_past)
+                    # beta consistent with the line-search solution (the one
+                    # from the Gauss-Newton step belongs to another s).
+                    beta_cur = self.get_optimal_beta(s_cur)
                     if obj < obj_old:
                         self.istate.s_best = s_cur
+                        self.istate.beta_best = beta_cur
                         self.istate.simul_obs_best = simul_obs_cur
                         self.istate.iter_best = n_iter + 1
                     else:
@@ -1646,7 +1710,12 @@ class PCGA:
                     n_iter += 1
                     break
 
-            res = float(np.linalg.norm(s_past - s_cur) / np.linalg.norm(s_past))
+            norm_s_past = float(np.linalg.norm(s_past))
+            res = (
+                float(np.linalg.norm(s_past - s_cur)) / norm_s_past
+                if norm_s_past > 0.0
+                else float("inf")  # e.g. s_init = 0
+            )
             residuals = (simul_obs_cur.T - self.obs).T
             loss_ls = self.objective_function_ls(simul_obs_cur).item()
             rmse = self.rmse(residuals, False).item()
@@ -1677,7 +1746,7 @@ class PCGA:
                 break
             elif self.ftarget is not None:
                 if self.ftarget > obj:
-                    self.istate.status = "CONVERGENCE: F_<=_FACTR*EPSMCH"
+                    self.istate.status = "CONVERGENCE: F_<=_FTARGET"
                     self.istate.is_success = True
                     n_iter += 1
                     break
@@ -1708,28 +1777,30 @@ class PCGA:
             if self.istate.iter_best == n_iter + 1:
                 # need to use HZ and HX here !
                 # assume linesearch result close to the current solution
+                assert self.istate.last_jac is not None
+                HX_cur, HZ_cur, Hs_cur = self.istate.last_jac
+                # Jacobian products consistent with s_best/best_inflation, required
+                # for the posterior covariance (also after the inversion).
+                self.istate.HX, self.istate.HZ, self.istate.Hs = (
+                    HX_cur,
+                    HZ_cur,
+                    Hs_cur,
+                )
                 start = time()
                 if self.is_direct_solve:
                     self.loginfo(
                         "start direct posterior variance computation "
                         "- this option works for O(nobs) ~ 100"
                     )
-                    self.post_diagv = self._compute_post_cov_diag(
-                        self.istate.HZ,
-                        self.istate.HX,
-                        self.cov_obs,
-                        inflation_cur,
-                        is_direct_solve=True,
-                    )
                 else:
                     self.loginfo("start posterior variance computation")
-                    self.post_diagv = self._compute_post_cov_diag(
-                        self.istate.HZ,
-                        self.istate.HX,
-                        self.cov_obs,
-                        inflation_cur,
-                        is_direct_solve=False,
-                    )
+                self.post_diagv = self._compute_post_cov_diag(
+                    HZ_cur,
+                    HX_cur,
+                    self.cov_obs,
+                    inflation_cur,
+                    is_direct_solve=self.is_direct_solve,
+                )
                 self.loginfo(f"posterior diag. computed in {(time() - start):.3e} s")
             else:
                 self.loginfo(
@@ -1739,7 +1810,14 @@ class PCGA:
             # if self.iter_save:
             #     np.savetxt("./postv.txt", self.post_diagv)
 
-        # return s_cur, beta_cur, simul_obs, iter_cur
+        # Free memory
+        self.istate.last_jac = None
+        if not self.is_save_jac:
+            self.istate.HX = np.array([])
+            self.istate.HZ = np.array([])
+            self.istate.Hs = np.array([])
+            self.istate.invA_as_linop = None
+
         self.loginfo("------------ Inversion Summary ---------------------------")
         self.loginfo(f"** Success = {self.istate.is_success}")
         self.loginfo(f"** Status  = {self.istate.status}")
@@ -1788,7 +1866,11 @@ class PCGA:
         self, HZ: NDArrayFloat, cov_obs: covmats.CovarianceMatrix, inflation: float
     ) -> NDArrayFloat:
         """Get the matrix HQH^{T} + \alpha R."""
-        return cov_obs.todense() + inflation * np.dot(HZ, HZ.T)
+        # NOTE: the inflation factor applies to R (Levenberg-Marquardt
+        # inflation of the observation-error covariance), consistently with
+        # the Krylov operator (get_A_as_linop), the preconditioner (InvALinOp)
+        # and the cR statistic. It used to multiply HQH^{T} instead.
+        return np.dot(HZ, HZ.T) + inflation * cov_obs.todense()
 
     @staticmethod
     def build_cholesky(Psi: NDArrayFloat, HX: NDArrayFloat) -> NDArrayFloat:
@@ -1860,7 +1942,22 @@ class PCGA:
 
         return ALinOp()
 
-    def _get_post_cov_build_inputs(
+    def _get_invA_for(
+        self, HZ: NDArrayFloat, HX: NDArrayFloat, cov_obs: covmats.CovarianceMatrix
+    ) -> InvALinOp:
+        """
+        Return the low rank approximation of A^{-1} for the given linearization.
+
+        The operator built during the last linear iteration is reused when it
+        was built from the very same (HZ, HX) arrays, which avoids a second,
+        expensive randomized generalized eigen-decomposition.
+        """
+        op = self.istate.invA_as_linop
+        if op is not None and op.HZ is HZ and op.HX is HX and op.cov_obs is cov_obs:
+            return op
+        return self.get_invA_as_linop(HZ, HX, cov_obs)
+
+    def _get_post_cov_lowrank(
         self,
         HZ: NDArrayFloat,
         HX: NDArrayFloat,
@@ -1868,26 +1965,47 @@ class PCGA:
         inflation: float,
         is_direct_solve: bool,
     ) -> Tuple[NDArrayFloat, NDArrayFloat]:
+        r"""
+        Return (W, K) such that the posterior covariance is Q - W^T K W.
 
+        The classical formulation is Q - b^T A^{-1} b with
+        b = [HQ; X^T] = [HZ Z^T; X^T], of shape (n_obs + p, s_dim), which
+        requires solving A with s_dim right-hand sides. Writing
+        b = G W with G = blockdiag(HZ, I_p), shape (n_obs + p, n_pc + p), and
+        W = [Z^T; X^T], shape (n_pc + p, s_dim), gives
+        b^T A^{-1} b = W^T (G^T A^{-1} G) W = W^T K W, so that only n_pc + p
+        right-hand sides are needed, and K is a small (n_pc + p) square matrix.
+        """
         Z = np.sqrt(self.Q.eig_vals).T * self.Q.eig_vects
-
-        # [HQ, X^{T}]  shape (N_obs + N_p, N_s)
-        b_all = np.vstack([np.dot(HZ, Z.T), self.drift.mat.T])
         p = self.drift.beta_dim
+        n_pc = HZ.shape[1]
+
+        # W = [Z^T; X^T], shape (n_pc + p, s_dim)
+        W = np.vstack([Z.T, self.drift.mat.T])
+        # G = blockdiag(HZ, I_p), shape (n_obs + p, n_pc + p)
+        G = np.zeros((self.n_obs + p, n_pc + p), dtype=np.float64)
+        G[: self.n_obs, :n_pc] = HZ
+        G[self.n_obs :, n_pc:] = np.identity(p)
 
         if is_direct_solve:
             # Use cholesky factorization to solve the system
             LA = self.build_cholesky(self.get_psi(HZ, cov_obs, inflation), HX)
-            # shape (n_pc + p, ns) => solve only once
-            invAb_all: NDArrayFloat = PCGA.solve_cholesky(LA, b_all, p)
+            invAG = PCGA.solve_cholesky(LA, G, p)
         else:
-            # Use iterative Krylov subspace to solve the system
-            # (n_pc + p, ns) => solve only once
-            # Solving ns Ax = b is too long so we simply use the preconditioner and it
-            # works very fine.
-            invAb_all = self.get_invA_as_linop(HZ, HX, cov_obs) @ b_all
+            # Solving Ax = b with a Krylov solver for each column would be too
+            # long, so we use the (low rank) preconditioner, which works fine.
+            invAG = self._get_invA_for(HZ, HX, cov_obs).with_inflation(inflation) @ G
+        K = G.T @ invAG
+        # Symmetric in exact arithmetic
+        return W, 0.5 * (K + K.T)
 
-        return b_all, invAb_all
+    def _check_jac_available(self) -> None:
+        if np.size(self.istate.HZ) == 0:
+            raise RuntimeError(
+                "The Jacobian products (HX, HZ) at the best solution are not "
+                "available: either `run` has not been called, no iteration "
+                "improved on the initial guess, or `is_save_jac` is False."
+            )
 
     def _compute_post_cov_diag(
         self,
@@ -1898,14 +2016,15 @@ class PCGA:
         is_direct_solve: bool,
     ) -> NDArrayFloat:
         """Computing posterior diagonal entries using cholesky/it krylov subspace."""
-        b_all, invAb_all = self._get_post_cov_build_inputs(
+        W, K = self._get_post_cov_lowrank(
             HZ=HZ,
             HX=HX,
             cov_obs=cov_obs,
             inflation=inflation,
             is_direct_solve=is_direct_solve,
         )
-        return (self.prior_s_var - np.sum(b_all * invAb_all, axis=0)).reshape(-1, 1)
+        # diag(W^T K W) without forming the (s_dim, s_dim) matrix
+        return (self.prior_s_var - ensemble_dot(W, K @ W)).reshape(-1, 1)
 
     def get_dense_post_cov(
         self,
@@ -1943,15 +2062,16 @@ class PCGA:
             _inflation: float = self.istate.best_inflation
         else:
             _inflation = inflation
+        self._check_jac_available()
 
-        b_all, invAb_all = self._get_post_cov_build_inputs(
+        W, K = self._get_post_cov_lowrank(
             HZ=self.istate.HZ,
             HX=self.istate.HX,
             cov_obs=self.cov_obs,
             inflation=_inflation,
             is_direct_solve=_is_direct_solve,
         )
-        return self.Q.todense() - b_all.T @ invAb_all
+        return self.Q.todense() - W.T @ (K @ W)
 
     def get_eigen_post_cov(
         self,
@@ -2009,8 +2129,9 @@ class PCGA:
             _random_state = self.random_state
         else:
             _random_state = check_random_state(random_state)
+        self._check_jac_available()
 
-        b_all, invAb_all = self._get_post_cov_build_inputs(
+        W, K = self._get_post_cov_lowrank(
             HZ=self.istate.HZ,
             HX=self.istate.HX,
             cov_obs=self.cov_obs,
@@ -2026,7 +2147,10 @@ class PCGA:
 
             def _matvec(self, x: NDArrayFloat) -> NDArrayFloat:
                 """Return the covariance matrix times the vector x."""
-                return Q @ x - b_all.T @ (invAb_all @ x)
+                return Q @ x - W.T @ (K @ (W @ x))
+
+            def _matmat(self, X: NDArrayFloat) -> NDArrayFloat:
+                return Q @ X - W.T @ (K @ (W @ X))
 
         return covmats.CovViaEigenFactorization(
             covmats.get_linop_eigen_factorization(

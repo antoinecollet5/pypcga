@@ -3,7 +3,11 @@ import numpy as np
 import pypcga
 import pytest
 
-from .conftest import N_PC, S_DIM, quadratic_forward_model
+from .conftest import (  # ty: ignore[unresolved-import]
+    N_PC,
+    S_DIM,
+    quadratic_forward_model,
+)
 
 
 def _make_kwargs(n_obs=6, **overrides):
@@ -38,7 +42,7 @@ def test_callback_is_invoked() -> None:
 def test_ftarget_triggers_early_stop() -> None:
     solver = pypcga.PCGA(**_make_kwargs(ftarget=1.0e10, maxiter=5))
     solver.run()
-    assert solver.istate.status == "CONVERGENCE: F_<=_FACTR*EPSMCH"
+    assert solver.istate.status == "CONVERGENCE: F_<=_FTARGET"
     assert solver.istate.is_success is True
 
 

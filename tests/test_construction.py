@@ -5,7 +5,11 @@ import numpy as np
 import pypcga
 import pytest
 
-from .conftest import N_PC, S_DIM, quadratic_forward_model  # ty: ignore[import-not-found]
+from .conftest import (  # ty: ignore[unresolved-import]
+    N_PC,
+    S_DIM,
+    quadratic_forward_model,
+)
 
 
 def _make_kwargs(n_obs: int, **overrides):
@@ -106,5 +110,5 @@ def test_get_v0() -> None:
     # get_v0's `random_state is None` branch is unreachable through normal
     # construction (check_random_state never returns None), but the method
     # itself still supports it defensively -- exercise it directly.
-    solver.random_state = None
+    solver.random_state = None  # ty: ignore[invalid-assignment]
     assert solver.get_v0(5) is None

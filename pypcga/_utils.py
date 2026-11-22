@@ -1,16 +1,48 @@
 """Provide utilities."""
 
 import logging
+import numbers
 from typing import Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
 import scipy as sp
-from scipy._lib._util import check_random_state
 from scipy.sparse.linalg import LinearOperator
 
 NDArrayFloat = npt.NDArray[np.floating]
 NDArrayBool = npt.NDArray[np.bool_]
+
+RandomStateLike = Optional[Union[int, np.random.Generator, np.random.RandomState]]
+
+
+def check_random_state(
+    seed: RandomStateLike,
+) -> Union[np.random.Generator, np.random.RandomState]:
+    """
+    Turn `seed` into a ``np.random.Generator`` or ``np.random.RandomState``.
+
+    Public re-implementation of ``scipy._lib._util.check_random_state`` (a
+    private SciPy helper that may change or disappear without notice).
+
+    Parameters
+    ----------
+    seed : None, int, np.random.Generator or np.random.RandomState
+        If None (or ``np.random``), the global ``RandomState`` singleton is
+        returned. If an int, a new ``RandomState`` seeded with it is returned.
+        If already a ``Generator``/``RandomState``, it is returned unchanged.
+
+    Returns
+    -------
+    Union[np.random.Generator, np.random.RandomState]
+        The random state.
+    """
+    if seed is None or seed is np.random:
+        return np.random.mtrand._rand
+    if isinstance(seed, (numbers.Integral, np.integer)):
+        return np.random.RandomState(int(seed))
+    if isinstance(seed, (np.random.RandomState, np.random.Generator)):
+        return seed
+    raise ValueError(f"{seed!r} cannot be used to seed a numpy.random.RandomState")
 
 
 def mgs_stable(
@@ -88,9 +120,9 @@ def mgs_stable(
     reorth = np.zeros((n,), dtype="d")
     eps = np.finfo(np.float64).eps
 
-    q = np.copy(Z)
+    q = np.array(Z, dtype="d", copy=True)
 
-    for k in np.arange(n):
+    for k in range(n):
         Aq[:, k] = Aop.matvec(q[:, k])
         t = np.sqrt(np.dot(q[:, k].T, Aq[:, k]))
 
@@ -98,10 +130,14 @@ def mgs_stable(
         u = 0
         while nach:
             u += 1
-            for i in np.arange(k):
-                s = np.dot(Aq[:, i].T, q[:, k])
-                r[i, k] += s
-                q[:, k] -= s * q[:, i]
+            if k > 0:
+                # Block (BLAS-2) projection against the k previous columns.
+                # Combined with the re-orthogonalization loop (Rutishauser's
+                # criterion), this classical Gram-Schmidt "twice" variant is as
+                # stable as MGS while avoiding an O(k) Python loop.
+                s = Aq[:, :k].T @ q[:, k]
+                r[:k, k] += s
+                q[:, k] -= q[:, :k] @ s
 
             Aq[:, k] = Aop.matvec(q[:, k])
             tt = np.sqrt(np.dot(q[:, k].T, Aq[:, k]))
@@ -221,16 +257,23 @@ def ghep(
     """
     # Initiate random matrix
     _random_state = check_random_state(random_state)
-    Omega = _random_state.normal(loc=0.0, scale=1.0, size=(A.shape[1], r + d))
-    # Sample column space
-    Y = Binv @ A @ Omega
-    # Orthogonalize column samples alternatively msg_stable
+    # The number of samples cannot exceed the dimension of the problem:
+    # extra columns would be linearly dependent and only waste A-applications.
+    n_samples = min(r + d, A.shape[1])
+    Omega = _random_state.normal(loc=0.0, scale=1.0, size=(A.shape[1], n_samples))
+    # Sample column space. NOTE: the parentheses matter: with dense matrices,
+    # `Binv @ A @ Omega` would first form the (N x N) product Binv @ A.
+    Y = Binv @ (A @ Omega)
+    # B-orthogonalize the column samples
     Qy = mgs_stable(B, Y)[0]
-    # SVD of k × k compressed row sample matrix
+    # Eigen decomposition of the small k × k compressed matrix
     if single_pass:
-        s, Z = sp.linalg.eigh(Qy.T @ Y @ sp.linalg.pinv(Qy.T @ Omega), lower=True)
+        T = Qy.T @ Y @ sp.linalg.pinv(Qy.T @ Omega)
     else:
-        s, Z = sp.linalg.eigh(Qy.T @ A.T @ Qy, lower=True)
+        T = Qy.T @ (A @ Qy)
+    # T is symmetric in exact arithmetic only: symmetrize it so that eigh does
+    # not silently discard its upper triangle.
+    s, Z = sp.linalg.eigh(0.5 * (T + T.T))
 
     _sort = np.argsort(s)[::-1]
 

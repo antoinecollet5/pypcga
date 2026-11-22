@@ -3,7 +3,7 @@ import numpy as np
 import pypcga
 import pytest
 
-from .conftest import (  # ty: ignore[import-not-found]
+from .conftest import (  # ty: ignore[unresolved-import]
     N_PC,
     S_DIM,
     linear_forward_model,
@@ -66,9 +66,9 @@ def test_lm_all_candidates_violate_bounds_falls_back(is_direct_solve, caplog) ->
 
 @pytest.mark.parametrize("is_direct_solve", (True, False))
 def test_lm_multiprocessing(is_direct_solve) -> None:
-    # max_workers = max(max_workers_lm, max_it_lm) when is_lm is True; with
+    # max_workers = min(max_workers_lm, max_it_lm) when is_lm is True; with
     # both > 1 and n_internal_loops > 1, linear_iteration dispatches through
-    # ProcessPoolExecutor instead of the single-worker loop.
+    # a ThreadPoolExecutor instead of the single-worker loop.
     solver = pypcga.PCGA(
         **_make_kwargs(
             is_lm=True,
@@ -117,7 +117,8 @@ def test_get_invA_as_linop_rank_edge_cases(n_obs, n_pc) -> None:
     solver = pypcga.PCGA(**_make_kwargs(n_obs=n_obs, n_pc=n_pc, is_direct_solve=False))
     rng = np.random.default_rng(20)
     HZ = rng.normal(size=(n_obs, n_pc))
-    HX = solver.drift.mat
+    # HX = H @ X has shape (n_obs, beta_dim)
+    HX = rng.normal(size=(n_obs, solver.drift.beta_dim))
     op = solver.get_invA_as_linop(HZ, HX, solver.cov_obs)
     assert op.shape == (n_obs + solver.drift.beta_dim, n_obs + solver.drift.beta_dim)
 

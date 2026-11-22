@@ -3,7 +3,11 @@ import numpy as np
 import pypcga
 from pypcga._pcga import PCGA
 
-from .conftest import N_PC, S_DIM, quadratic_forward_model
+from .conftest import (  # ty: ignore[unresolved-import]
+    N_PC,
+    S_DIM,
+    quadratic_forward_model,
+)
 
 
 def _make_solver(n_obs=6, **overrides):

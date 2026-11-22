@@ -42,8 +42,8 @@ def test_inv_a_linop() -> None:
     assert invPsi.shape == (n_obs, n_obs)
 
     x = rng.normal(size=(n_obs + beta_dim, 1))
-    y_matvec = op.matvec(x)
-    y_rmatvec = op.rmatvec(x)
+    y_matvec = op.matvec(x.ravel())
+    y_rmatvec = op.rmatvec(x.ravel())
     # InvALinOp is meant to represent a symmetric operator (A^{-1} is
     # symmetric since A is), so matvec and rmatvec should agree.
     np.testing.assert_allclose(y_matvec, y_rmatvec)
@@ -52,4 +52,4 @@ def test_inv_a_linop() -> None:
     y_matmat = op.matmat(X)
     y_rmatmat = op.rmatmat(X)
     np.testing.assert_allclose(y_matmat, y_rmatmat)
-    np.testing.assert_allclose(y_matmat[:, 0:1], y_matvec)
+    np.testing.assert_allclose(y_matmat[:, 0], y_matvec)
