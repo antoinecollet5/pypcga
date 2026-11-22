@@ -114,3 +114,9 @@ test-output.xml
 
 # for the documentation
 _autosummary/
+
+# marimo examples: notebooks exported for the documentation, simulation outputs
+docs/sources/notebooks/*.ipynb
+__marimo__/
+examples/**/simul/
+examples/**/results.npz

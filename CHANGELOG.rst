@@ -2,6 +2,74 @@
 Changelog
 ==============
 
+0.3.1 (2026-11-22)
+------------------
+
+Bug fixes
+^^^^^^^^^
+
+* **Levenberg-Marquardt with** ``is_direct_solve=True``: ``get_psi`` applied the
+  inflation factor to ``HQH^T`` instead of ``R`` (``alpha HQH^T + R`` instead of
+  ``HQH^T + alpha R``), so the direct and Krylov solvers returned different LM
+  candidates. Both now solve the same system.
+* The Krylov preconditioner and the Krylov posterior variance ignored the LM
+  inflation factor (``InvALinOp.inflation`` was never updated), giving a wrong
+  posterior variance whenever ``best_inflation != 1``.
+* ``is_save_jac=False`` crashed at the first posterior-variance computation.
+* ``get_dense_post_cov``/``get_eigen_post_cov`` used the Jacobian of the *last*
+  linearization, which is not the one of ``s_best`` when the last iteration was
+  rejected: ``diag(get_dense_post_cov())`` did not match ``post_diagv``.
+* ``line_search`` evaluated ``max_it_lm`` points instead of ``max_it_ls``, could
+  raise ``UnboundLocalError`` when all objectives were NaN, and left a stale
+  ``beta`` (now recomputed with the new ``get_optimal_beta``).
+* ``max_workers`` was ``max(max_workers_lm, max_it_lm)`` (user limit ignored);
+  it is now ``min(...)``.
+* Calling ``run()`` twice accumulated the objective/Q2/cR sequences of both runs
+  and mis-indexed the "best" values. The internal state is now reset.
+* ``rmse(..., is_normalized=True)`` returned an (Ne, Ne) matrix instead of Ne
+  values.
+* ``Q2_best``/``best_cR``/``best_inflation`` silently returned the values of the
+  last (rejected) iteration when no iteration improved on the initial guess;
+  they now return NaN.
+* Division by zero in the relative model-change criterion when ``s_init = 0``.
+* Wrong ``ftarget`` status message (``F_<=_FACTR*EPSMCH`` -> ``F_<=_FTARGET``),
+  missing log header for the first iteration, ``ILDE`` typo, log through the root
+  logger in ``get_invA_as_linop``, ``ftol``/``restol`` displayed as ``0.0``.
+* ``ghep``: the compressed matrix is symmetrized before ``eigh`` (its upper
+  triangle used to be silently discarded), and ``Binv @ A @ Omega`` no longer forms
+  the N x N product ``Binv @ A`` when dense matrices are given.
+* GMRES non-convergence is now reported (warning + log) instead of being ignored.
+
+Improvements
+^^^^^^^^^^^^
+
+* Posterior (co)variance computed through a low-rank formulation
+  ``Q - W^T K W`` with ``K`` of size ``(n_pc + p)``: only ``n_pc + p`` right-hand
+  sides instead of ``s_dim`` (about 10x faster on a 40 000-cell test case), and the
+  preconditioner built during the iteration is reused instead of recomputed.
+* The dense ``HQ`` matrix (``n_obs x s_dim``) is no longer built in the direct
+  solver.
+* ``InvALinOp`` caches the inflation-dependent quantities and uses 2 instead of 3
+  applications of ``Psi^{-1}`` per product; ``with_inflation`` gives thread-safe
+  copies.
+* LM candidates are solved with a ``ThreadPoolExecutor`` instead of a
+  ``ProcessPoolExecutor``: nothing needs to be picklable anymore (lambdas and
+  closures are accepted as ``forward_model``) and ``self`` is not pickled per task.
+* Vectorized Gram-Schmidt projections in ``mgs_stable`` and line-search ensemble.
+* ``scipy._lib._util.check_random_state`` (private SciPy API) replaced by
+  ``pypcga._utils.check_random_state``.
+* Examples rewritten as `marimo <https://marimo.io>`_ notebooks (plain ``.py``
+  files) instead of Jupyter notebooks.
+
+API changes
+^^^^^^^^^^^
+
+* ``internal_iteration_direct(HZ, HX, HQ, b, inflation)`` now takes ``Z`` instead
+  of ``HQ`` (same signature as ``internal_iteration_krylov_subspace``).
+* ``jac_mat`` no longer writes ``istate.HX/HZ/Hs`` directly; they now hold the
+  products at the best solution.
+* ``_get_post_cov_build_inputs`` replaced by ``_get_post_cov_lowrank``.
+
 0.3.0 (2026-08-10)
 ------------------
 

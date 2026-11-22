@@ -52,15 +52,13 @@ all = ['pypcga[install, lint, tests, examples, docs]']
 docs = [
     "pypcga[examples]",
     "sphinx<9",
-    "nbsphinx",
-    "nbsphinx-link>=1.3.1",
-    "jupyter_sphinx>=0.3.2",
+    "nbsphinx",  # renders the ipynb exported from the marimo examples
+    "nbformat",  # required by `marimo export ipynb`
     "sphinx-jsonschema>=1.15",
     "pygments>=2.11.1",
     "pydata-sphinx-theme",
     "sphinxcontrib-bibtex",
     "sphinx_math_dollar",
-    "jupytext",
 ]
 tests = [
     "twine==1.14.0",
@@ -70,8 +68,9 @@ tests = [
     "pytest-cookies",
     "coverage",
 ]
-examples = ["matplotlib", "Ipykernel", "Ipython", "nested_grid_plotter"]
-lint = ["pre-commit", "pre-commit-hooks", "codespell>=2.1.0", "ruff==0.17.6", "ty==0.0.107"]
+# The examples are marimo notebooks (marimo requires python >= 3.10)
+examples = ["matplotlib", "marimo>=0.20; python_version >= '3.10'"]
+lint = ["pre-commit", "pre-commit-hooks", "codespell>=2.1.0", "ruff==0.17.6", "ty==0.0.107", "marimo>=0.20; python_version >= '3.10'"]
 install = ["pip", "wheel"]
 
 
