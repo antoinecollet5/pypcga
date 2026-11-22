@@ -18,6 +18,7 @@
 # absolute, like shown here.
 
 import datetime
+import json
 import os
 import sys
 
@@ -61,14 +62,73 @@ extensions = [
     "sphinx.ext.intersphinx",  # Link to other projects’ documentation
     "sphinx.ext.autosectionlabel",  # Allow reference sections using its title
     # 'sphinx.ext.mathjax',
-    "nbsphinx",  # provides a source parser for *.ipynb files.
-    # allows you to include Jupyter notebooks that sit outside your sphinx source
-    # directory in your documentation.
-    "nbsphinx_link",
-    # enables running code embedded in Sphinx documentation and embedding output
-    # of that code into the resulting document
-    "jupyter_sphinx",
+    # renders the *.ipynb files exported from the marimo notebooks (see below)
+    "nbsphinx",
 ]
+
+# -----------------------------------------------------------------------------
+# Examples: marimo notebooks -> ipynb (with outputs) -> nbsphinx
+# -----------------------------------------------------------------------------
+
+# The examples are marimo notebooks (plain .py files). The fast ones are executed
+# and exported to ipynb (with their outputs) when the documentation is built, so
+# that nbsphinx only renders them (no Jupyter kernel needed).
+EXAMPLES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "examples")
+)
+NOTEBOOKS_DIR = os.path.join(os.path.dirname(__file__), "notebooks")
+MARIMO_NOTEBOOKS = {
+    "2d_toy_example": "2d_toy_example.py",
+    "pumping_linear_inversion": os.path.join(
+        "pumping_history_identification", "linear_inversion.py"
+    ),
+    "pumping_nonlinear_inversion": os.path.join(
+        "pumping_history_identification", "nonlinear_inversion.py"
+    ),
+}
+nbsphinx_execute = "never"
+
+
+def export_marimo_notebooks() -> None:
+    """Run and export the marimo example notebooks to ipynb (with outputs)."""
+    import subprocess
+
+    os.makedirs(NOTEBOOKS_DIR, exist_ok=True)
+    env = {**os.environ, "MPLBACKEND": "Agg"}
+    for name, src in MARIMO_NOTEBOOKS.items():
+        src_path = os.path.join(EXAMPLES_DIR, src)
+        dst_path = os.path.join(NOTEBOOKS_DIR, f"{name}.ipynb")
+        # skip up-to-date exports
+        if os.path.exists(dst_path) and os.path.getmtime(dst_path) >= os.path.getmtime(
+            src_path
+        ):
+            continue
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "marimo",
+                "export",
+                "ipynb",
+                src_path,
+                "-o",
+                dst_path,
+                "--include-outputs",
+                "--force",
+            ],
+            check=True,
+            env=env,
+        )
+        # The exported notebooks declare the "ipython3" pygments lexer, which is
+        # only available with IPython: use the plain python one instead.
+        with open(dst_path, encoding="utf-8") as f:
+            nb = json.load(f)
+        nb["metadata"].setdefault("language_info", {})["pygments_lexer"] = "python3"
+        with open(dst_path, "w", encoding="utf-8") as f:
+            json.dump(nb, f, indent=1)
+
+
+export_marimo_notebooks()
 
 # -----------------------------------------------------------------------------
 # Autosummary
@@ -112,7 +172,8 @@ intersphinx_mapping = {
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 # source_suffix = ['.rst', '.md']
-source_suffix = [".rst", ".ipynb"]
+# NOTE: ".ipynb" must not be listed here: nbsphinx registers its own parser for it
+source_suffix = [".rst"]
 
 
 # The encoding of source files.

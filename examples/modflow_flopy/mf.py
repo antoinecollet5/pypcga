@@ -13,9 +13,12 @@ class Model:
         self.homedir = os.path.abspath("./")
         self.deletedir = True
 
-        from psutil import cpu_count  # physical cpu counts
+        try:
+            from psutil import cpu_count  # physical cpu counts
 
-        self.ncores = cpu_count(logical=False)
+            self.ncores = cpu_count(logical=False) or os.cpu_count() or 1
+        except ImportError:  # psutil is optional
+            self.ncores = os.cpu_count() or 1
 
         if params is not None:
             if "deletedir" in params:
@@ -141,6 +144,11 @@ class Model:
 
         # Run the MODFLOW model
         success, buff = mymf.run_model(silent=True)
+        if not success:
+            raise RuntimeError(
+                f"MODFLOW run failed in {mydir} (executable: {exec_name}).\n"
+                + "\n".join(map(str, buff[-20:]))
+            )
 
         ##get the measurement locations
         hds = bf.HeadFile(os.path.join(mydir, modelname + ".hds"))
@@ -181,17 +189,15 @@ class Model:
         args_map = [(HK[:, arg : arg + 1], arg) for arg in method_args]
 
         if par:
-            pool = Pool(processes=ncores)
-            simul_obs = pool.map(self, args_map)
+            # the context manager makes sure the worker processes are released
+            with Pool(processes=ncores) as pool:
+                simul_obs = pool.map(self, args_map)
         else:
             simul_obs = []
             for item in args_map:
                 simul_obs.append(self(item))
 
         return np.array(simul_obs).T  # make it 2D
-
-        # pool.close()
-        # pool.join()
 
     def __call__(self, args):
         return self.run_model(args[0], args[1])
@@ -227,7 +233,7 @@ if __name__ == "__main__":
     ztop = 0.0
     zbot = -1.0
 
-    obs_locmat = np.zeros((nlay, nrow, ncol), np.bool)
+    obs_locmat = np.zeros((nlay, nrow, ncol), bool)
     for i in range(5, 71, 16):
         for j in range(9, 96, 16):
             obs_locmat[0, i, j] = 1

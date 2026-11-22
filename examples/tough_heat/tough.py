@@ -13,7 +13,6 @@ from time import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from IPython.core.debugger import Tracer
 
 # PyTOUGH specific modules
 from mulgrids import *
@@ -22,7 +21,6 @@ from t2data import *
 from t2incons import *
 from t2thermo import *
 
-debug_here = Tracer()
 
 """
 three operations
@@ -42,9 +40,12 @@ class Model:
         self.parallel = False
         self.record_cobs = False
 
-        from psutil import cpu_count  # physical cpu counts
+        try:
+            from psutil import cpu_count  # physical cpu counts
 
-        self.ncores = cpu_count(logical=False)
+            self.ncores = cpu_count(logical=False) or os.cpu_count() or 1
+        except ImportError:  # psutil is optional
+            self.ncores = os.cpu_count() or 1
 
         if params is not None:
             if "deletedir" in params:
@@ -89,9 +90,13 @@ class Model:
                 "output_times_params",
             )
 
-            if not params.keys() != required_params:
+            # NOTE: this used to be `not params.keys() != required_params`,
+            # (dict keys vs tuple) which never raised.
+            missing = set(required_params) - set(params)
+            if missing:
                 raise ValueError(
-                    "You need to provide all the required tough parameters"
+                    "You need to provide all the required tough parameters, "
+                    f"missing: {sorted(missing)}"
                 )
 
             self.__dict__.update(
@@ -452,7 +457,7 @@ class Model:
     def read_SAVE(self):
         """read SAVE using pandas"""
         data_SAVE = pd.read_csv(
-            "SAVE", sep="\s+", header=None, skiprows=[0], error_bad_lines=False
+            "SAVE", sep=r"\s+", header=None, skiprows=[0], on_bad_lines="skip"
         )
         data_SAVE = data_SAVE.drop([0, 1, len(data_SAVE) - 1])
         blk_1 = []
@@ -590,17 +595,15 @@ class Model:
         args_map = [(s[:, arg : arg + 1], arg) for arg in method_args]
 
         if par:
-            pool = Pool(processes=ncores)
-            simul_obs = pool.map(self, args_map)
+            # the context manager makes sure the worker processes are released
+            with Pool(processes=ncores) as pool:
+                simul_obs = pool.map(self, args_map)
         else:
             simul_obs = []
             for item in args_map:
                 simul_obs.append(self(item))
 
         return np.array(simul_obs).T
-
-        # pool.close()
-        # pool.join()
 
     def __call__(self, args):
         return self.run_model(args[0], args[1])

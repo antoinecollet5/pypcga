@@ -7,9 +7,7 @@ from shutil import copy2, rmtree
 from time import time
 
 import numpy as np
-from IPython.core.debugger import Tracer
 
-debug_here = Tracer()
 
 """
 three operations
@@ -29,9 +27,12 @@ class Model:
         self.parallel = False
         self.record_cobs = False
 
-        from psutil import cpu_count  # physical cpu counts
+        try:
+            from psutil import cpu_count  # physical cpu counts
 
-        self.ncores = cpu_count(logical=False)
+            self.ncores = cpu_count(logical=False) or os.cpu_count() or 1
+        except ImportError:  # psutil is optional
+            self.ncores = os.cpu_count() or 1
 
         if params is not None:
             if "deletedir" in params:
@@ -67,7 +68,7 @@ class Model:
                 raise NameError("t is not defined")
 
             if "record_cobs" in params:
-                self.record_cobs = True
+                self.record_cobs = bool(params["record_cobs"])
 
     def create_dir(self, idx=None):
         mydirbase = "./simul/simul"
@@ -133,8 +134,10 @@ class Model:
 
         perm2dy = np.zeros((ny + 2, nx), "d")
         perm2dy[1:-1, :] = perm2d
-        perm2dx[0, :] = perm2dx[1, :]
-        perm2dx[-1, :] = perm2dx[-2, :]
+        # ghost rows (this used to overwrite perm2dx instead, leaving zero
+        # permeability rows at the y boundaries)
+        perm2dy[0, :] = perm2dy[1, :]
+        perm2dy[-1, :] = perm2dy[-2, :]
         np.savetxt(
             "PermField.y",
             perm2dy.reshape(
@@ -156,10 +159,12 @@ class Model:
         if self.record_cobs:
             self.simul_cobs = simul_cobs
 
-        for it in range(m):
-            simul_obs[it] = np.trapz(t * simul_cobs[it, :], x=t) / np.trapz(
-                simul_cobs[it, :], x=t
-            )
+        # mean arrival time m1/m0 at every cell (vectorized over cells).
+        # np.trapz was removed in NumPy 2.0 (np.trapezoid)
+        _trapz = getattr(np, "trapezoid", None) or np.trapz
+        simul_obs[:] = _trapz(t * simul_cobs, x=t, axis=1) / _trapz(
+            simul_cobs, x=t, axis=1
+        )
 
         os.chdir(self.homedir)
 
@@ -177,17 +182,15 @@ class Model:
         args_map = [(s[:, arg : arg + 1], arg) for arg in method_args]
 
         if par:
-            pool = Pool(processes=ncores)
-            simul_obs = pool.map(self, args_map)
+            # the context manager makes sure the worker processes are released
+            with Pool(processes=ncores) as pool:
+                simul_obs = pool.map(self, args_map)
         else:
             simul_obs = []
             for item in args_map:
                 simul_obs.append(self(item))
 
         return np.array(simul_obs).T
-
-        # pool.close()
-        # pool.join()
 
     def __call__(self, args):
         return self.run_model(args[0], args[1])

@@ -1,7 +1,7 @@
 import numpy as np
 
 """
-generate lnk_idx to link s_true to s_true_fem. this is needed in poro.py
+generate logk_idx to link s_true to s_true_fem. this is needed in poro.py
 using uniform grid lnk
 """
 s_true_fem = np.loadtxt("het_9999.csv", delimiter=",")
@@ -26,4 +26,4 @@ for pts in pts_fem:
 
     i = i + 1
 
-np.savetxt("lnk_idx.txt", np.array(idx), fmt="%d")
+np.savetxt("logk_idx.txt", np.array(idx), fmt="%d")

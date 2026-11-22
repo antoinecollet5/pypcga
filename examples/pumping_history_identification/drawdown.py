@@ -1,190 +1,118 @@
-import os
-from multiprocessing import Pool
-from shutil import copy2
+"""
+Groundwater drawdown model for pumping history reconstruction.
+
+Linear forward model of the drawdown observed at a monitoring well located at
+(x1, x2) = (6, 8) m, caused by an unknown pumping history s(t) at (0, 0), in a
+homogeneous, isotropic and infinite confined aquifer (Theis convolution):
+
+    y = H s          (or y = H exp(s) when working with log-transformed rates)
+
+The (100 x 10001) matrix H, obtained by quadrature of the Theis convolution
+integral, is precomputed and stored in ``H.mat``. Aquifer properties (Stanford
+CEE362g course): transmissivity T = 0.02 m2/min, storativity S = 0.001.
+"""
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
+import numpy.typing as npt
 from scipy.io import loadmat
 
-"""
-example from CEE362g Stanford, pumping history
-reconstruction for horizontal infinite aquier
-aquifer properties
-T = 0.02   # transmissivity [L^2/T]
-S = 0.001  # storatotivity  [/]
-phi0 = 50. # initial head
-D = T/S    # Hydraulic diffusivity
-x1 = 6, x2 = 8 # location of monitoring well (x1, x2)
-"""
+NDArrayFloat = npt.NDArray[np.floating]
 
-"""
-this template forward model require three operations
-1. write inputs (not used)
-2. run simul
-3. read input (not used)
-"""
+#: Default location of the precomputed sensitivity matrix (next to this file).
+DEFAULT_H_PATH = Path(__file__).resolve().parent / "H.mat"
+
+
+@lru_cache(maxsize=4)
+def load_H(path: Union[str, Path] = DEFAULT_H_PATH) -> NDArrayFloat:
+    """
+    Load (once) the forward operator matrix H from a ``.mat`` file.
+
+    Parameters
+    ----------
+    path : Union[str, Path], optional
+        Path to the ``.mat`` file holding the ``H`` variable. By default the
+        ``H.mat`` file shipped next to this module.
+
+    Returns
+    -------
+    NDArrayFloat
+        The forward operator H with shape (n_obs, n_params). The returned array
+        is cached and read-only.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found.")
+    H = np.asarray(loadmat(path)["H"], dtype=np.float64)
+    H.setflags(write=False)
+    return H
 
 
 class Model:
-    def __init__(self, params=None):
-        self.idx = 0
-        self.homedir = os.path.abspath("./")
-        self.inputdir = os.path.abspath(os.path.join(self.homedir, "./input_files"))
-        self.deletedir = True
-        self.outputdir = None
-        self.parallel = False
-        self.log = False  # log-transformed estimation
+    """
+    Drawdown forward model ``simul_obs = H @ s`` (or ``H @ exp(s)``).
 
-        from psutil import cpu_count  # physical cpu counts
+    Parameters
+    ----------
+    params : dict, optional
+        Optional configuration with keys:
 
-        self.ncores = cpu_count(logical=False)
+        - ``"log"`` (bool): if True, the parameters are log-transformed pumping
+          rates and the model is ``H @ exp(s)``. By default False.
+        - ``"H_path"`` (str or Path): location of ``H.mat``. By default the file
+          shipped next to this module.
+    """
 
-        if params is not None:
-            if "deletedir" in params:
-                self.deletedir = params["deletedir"]
-            if "homedir" in params:
-                self.homedir = params["homedir"]
-                self.inputdir = os.path.abspath(
-                    os.path.join(self.homedir, "./input_files")
-                )
-            if "inputdir" in params:
-                self.inputdir = params["inputdir"]
-            if "ncores" in params:
-                self.ncores = params["ncores"]
-            if "outputdir" in params:
-                # note that outputdir is not used for simulation
-                # force outputdir in ./simul/simul0000
-                self.outputdir = params["outputdir"]
-            if "parallel" in params:
-                self.outputdir = params["parallel"]
-            if "log" in params:
-                self.log = params["log"]
-        # load forward model operator
-        tmp = loadmat("H.mat")
-        self.H = tmp["H"]  # forward operator for simul_obs = np.dot(H,s)
+    def __init__(self, params: Optional[dict] = None) -> None:
+        params = params or {}
+        self.log: bool = bool(params.get("log", False))
+        self.H: NDArrayFloat = load_H(params.get("H_path", DEFAULT_H_PATH))
 
-    def create_dir(self, idx=None):
+    @property
+    def n_obs(self) -> int:
+        return self.H.shape[0]
+
+    @property
+    def n_params(self) -> int:
+        return self.H.shape[1]
+
+    def run(self, s_ensemble: NDArrayFloat, *args, **kwargs) -> NDArrayFloat:
         """
-        create directory for each , so that it does not interfere possible file IO.
-        Not Used in this example!
+        Run the forward model for an ensemble of parameter vectors.
+
+        The whole ensemble is evaluated with a single (BLAS) matrix product,
+        which is much faster than looping or spawning processes. Extra
+        positional/keyword arguments (e.g. the former ``parallel`` and ``ncores``)
+        are accepted for backward compatibility and ignored.
+
+        Parameters
+        ----------
+        s_ensemble : NDArrayFloat
+            Parameter vectors with shape (n_params, n_ensemble) or (n_params,).
+
+        Returns
+        -------
+        NDArrayFloat
+            Simulated drawdowns with shape (n_obs, n_ensemble).
         """
-        mydirbase = "./simul/simul"
-        if idx is None:
-            idx = self.idx
+        S = np.asarray(s_ensemble, dtype=np.float64).reshape(self.n_params, -1)
+        return self.H @ (np.exp(S) if self.log else S)
 
-        mydir = mydirbase + "{0:04d}".format(idx)
-        mydir = os.path.abspath(os.path.join(self.homedir, mydir))
-
-        if not os.path.exists(mydir):
-            os.makedirs(mydir)
-
-        for filename in os.listdir(self.inputdir):
-            copy2(os.path.join(self.inputdir, filename), mydir)
-
-        return mydir
-
-    def cleanup(self, outputdir=None):
-        """
-        Removes outputdir if specified. Otherwise removes all output files
-        in the current working directory.
-        Not Used in this example!
-        """
-        import shutil
-
-        log = "dummy.log"
-        if os.path.exists(log):
-            os.remove(log)
-        if outputdir is not None and outputdir != os.getcwd():
-            if os.path.exists(outputdir):
-                shutil.rmtree(outputdir)
-        else:
-            # filelist = glob.glob("*.out")
-            # filelist += glob.glob("*.dat")
-
-            # for file in filelist:
-            #    os.remove(file)
-            pass
-
-    def run_model(self, s, idx=0):
-        """
-        run model y = Hs
-        y.shape should be (m,) for parallelization!
-        """
-        # create directory
-        # sim_dir = self.create_dir(idx)
-
-        if self.log:
-            simul_obs = np.dot(self.H, np.exp(s))
-            simul_obs = simul_obs.reshape(-1)
-        else:
-            simul_obs = np.dot(self.H, s)
-            simul_obs = simul_obs.reshape(-1)
-
-        # if self.deletedir:
-        # rmtree(sim_dir, ignore_errors=True)
-        # self.cleanup(sim_dir)
-
-        return simul_obs
-
-    def run(self, s, par, ncores=None):
-        if ncores is None:
-            ncores = self.ncores
-
-        method_args = range(s.shape[1])
-        args_map = [(s[:, arg : arg + 1], arg) for arg in method_args]
-
-        if par:
-            pool = Pool(processes=ncores)
-            simul_obs = pool.map(self, args_map)
-        else:
-            simul_obs = []
-            for item in args_map:
-                simul_obs.append(self(item))
-
-        return np.array(simul_obs).T
-
-    def __call__(self, args):
-        return self.run_model(args[0], args[1])
+    def __call__(self, s_ensemble: NDArrayFloat) -> NDArrayFloat:
+        """Alias for :meth:`run`, so that a Model can be used as `forward_model`."""
+        return self.run(s_ensemble)
 
 
 if __name__ == "__main__":
-    import drawdown as dd # ty: ignore[unresolved-import]
-    import numpy as np
-
-    s_true = np.zeros((10001,), "d")
+    s_true = np.zeros((10001, 1))
     s_true[1001:3502] = 0.12
     s_true[3502:4002] = 0.06
 
-    s_true = s_true.reshape(-1, 1)
-    # np.savetxt("true.txt",s_true)
-
-    par = False  # parallelization false
-
-    # params = {}
-
-    # mymodel = dd.Model(params)
-    mymodel = dd.Model()
-    print("(1) single run")
-
-    simul_obs = mymodel.run(s_true, par)
-    obs = simul_obs + 0.01 * np.random.randn(100, 1)
-    # np.savetxt('obs.txt',obs)
-
-    ncores = 2
-    nrelzs = 2
-
-    # if your ipython does not work with parallel runs, please uncomment below
-
-    print("(2) parallel run with ncores = %d" % ncores)
-    par = True  # parallelization false
-    srelz = np.zeros((np.size(s_true, 0), nrelzs), "d")
-    for i in range(nrelzs):
-        srelz[:, i : i + 1] = s_true + 0.1 * np.random.randn(np.size(s_true, 0), 1)
-
-    simul_obs_all = mymodel.run(srelz, par, ncores=ncores)
-
-    print(simul_obs_all)
-
-    # use all the physcal cores if not specify ncores
-    # print('(3) parallel run with all the physical cores')
-    simul_obs_all = mymodel.run(srelz, par)
-    print(simul_obs_all)
+    model = Model()
+    print("single run:", model.run(s_true).shape)
+    s_ens = s_true + 0.1 * np.random.default_rng(0).normal(size=(10001, 3))
+    print("ensemble run:", model.run(s_ens).shape)
+    print("log model:", Model({"log": True}).run(np.log(s_true + 1e-6)).shape)

@@ -1,15 +1,17 @@
-#### pyPCGA E4D example
+#### pypcga E4D example
 
-This is code example from AGU 2014 presentation by Peter Kitanidis. The code is rewritten in python to illustrate a pyPCGA library ERT application example.
+This is the code example from the AGU 2014 presentation by Peter Kitanidis, rewritten in
+python to illustrate an ERT application of PCGA.
 
-One can find the detailed explanation in [a short arXiv writeup "Accelerated 3D Electrical Resistivity Tomography with a Scalable Jacobian-free Approach"](http://arxiv.org/abs/2202.00059)
+A detailed explanation is given in the short arXiv write-up
+["Accelerated 3D Electrical Resistivity Tomography with a Scalable Jacobian-free Approach"](http://arxiv.org/abs/2202.00059).
 
-The code needs to be cleaned and updated with notebook example for reproducible results. For now, you need to adjust the number of cores used in E4D and pyPCGA. I will update this soon.
+To run the example (`inversion_ert.py`, a marimo notebook):
 
-To run the code, you need to do followings:
-
-1. install pyPCGA
-2. install E4D (https://github.com/pnnl/E4D). Installation guide (https://github.com/pnnl/E4D/blob/master/Installation.txt)
-3. copy E4D's executables (e4d and mpirun) in the 'input_files' folder
-4. change inv_ert.py params['ncores'] = the number of your cores/the number of coresd used in E4D (set to 6) for the best performance.
-5. run!
+1. install pypcga with the examples dependencies: `pip install pypcga[examples]`
+2. install E4D (https://github.com/pnnl/E4D), see the installation guide
+   (https://github.com/pnnl/E4D/blob/master/Installation.txt)
+3. copy E4D's executables (`e4d` and `mpirun`) in the `input_files` folder
+4. each E4D run uses 6 MPI processes (see `ert.py`): adjust `ncores` (the number of
+   concurrent E4D runs) in `inversion_ert.py` to your machine
+5. run `marimo edit inversion_ert.py` (or `python inversion_ert.py`)

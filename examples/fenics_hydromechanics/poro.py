@@ -40,6 +40,9 @@ from multiphenics import (
 )
 from ufl import FiniteElement, VectorElement, avg, div, grad, inner, jump, sym
 
+# mesh files, located next to this module (not in the current working directory)
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
 os.environ["OMP_NUM_THREADS"] = "1"
 
 components = ["u", "p"]
@@ -50,9 +53,13 @@ def mu_str(mu):
 
 
 def read_mesh():
-    mesh = Mesh("data/biot_2mat.xml")
-    subdomains = MeshFunction("size_t", mesh, "data/biot_2mat_physical_region.xml")
-    boundaries = MeshFunction("size_t", mesh, "data/biot_2mat_facet_region.xml")
+    mesh = Mesh(os.path.join(DATA_DIR, "biot_2mat.xml"))
+    subdomains = MeshFunction(
+        "size_t", mesh, os.path.join(DATA_DIR, "biot_2mat_physical_region.xml")
+    )
+    boundaries = MeshFunction(
+        "size_t", mesh, os.path.join(DATA_DIR, "biot_2mat_facet_region.xml")
+    )
     return (mesh, subdomains, boundaries)
 
 
@@ -193,9 +200,12 @@ class Model:
         self.pty = None
         self.logk_idx = None
 
-        from psutil import cpu_count  # physical cpu counts
+        try:
+            from psutil import cpu_count  # physical cpu counts
 
-        self.ncores = cpu_count(logical=False)
+            self.ncores = cpu_count(logical=False) or os.cpu_count() or 1
+        except ImportError:  # psutil is optional
+            self.ncores = os.cpu_count() or 1
         if params is not None:
             if "ncores" in params:
                 self.ncores = params["ncores"]
@@ -203,22 +213,22 @@ class Model:
             if "ptx" in params:
                 self.ptx = params["ptx"]
             else:
-                ValueError("please provide forward_params[ptx]")
+                raise ValueError("please provide forward_params[ptx]")
 
             if "pty" in params:
                 self.pty = params["pty"]
             else:
-                ValueError("please provide forward_params[pty]")
+                raise ValueError("please provide forward_params[pty]")
 
             if "pts_fem" in params:
                 self.pts_fem = params["pts_fem"]
             else:
-                ValueError("please provide forward_params[pts_fem]")
+                raise ValueError("please provide forward_params[pts_fem]")
 
             if "logk_idx" in params:
                 self.logk_idx = params["logk_idx"]
             else:
-                ValueError("please provide forward_params[logk_idx]")
+                raise ValueError("please provide forward_params[logk_idx]")
 
     def s_to_s_fem(self, s):
         # simple nearest neighbor interpolation
@@ -431,8 +441,9 @@ class Model:
         args_map = [(s[:, arg : arg + 1], arg) for arg in method_args]
 
         if par:
-            pool = Pool(processes=ncores)
-            simul_obs = pool.map(self, args_map)
+            # the context manager makes sure the worker processes are released
+            with Pool(processes=ncores) as pool:
+                simul_obs = pool.map(self, args_map)
         else:
             simul_obs = []
             for item in args_map:
