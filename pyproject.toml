@@ -70,7 +70,7 @@ tests = [
 ]
 # The examples are marimo notebooks (marimo requires python >= 3.10)
 examples = ["matplotlib", "marimo>=0.20; python_version >= '3.10'"]
-lint = ["pre-commit", "pre-commit-hooks", "codespell>=2.1.0", "ruff==0.17.6", "ty==0.0.107", "marimo>=0.20; python_version >= '3.10'"]
+lint = ["pre-commit", "pre-commit-hooks", "codespell>=2.1.0", "ruff==0.17.6", "ty==0.0.108", "marimo>=0.20; python_version >= '3.10'"]
 install = ["pip", "wheel"]
 
 
