@@ -85,6 +85,7 @@ exclude = ["docs*", "tests*"]
 [tool.setuptools.dynamic]
 version = { attr = "pypcga.__about__.__version__" }
 
+
 [tool.ruff]
 lint.select = [
     # Pyflakes
@@ -149,6 +150,10 @@ ignore-words-list = "lod,byteorder,flem,parm,revered,inout,nd,WEL,wel,shat,ist"
 [tool.ty.rules]
 too-many-positional-arguments = "ignore"
 missing-argument = "ignore"
+
+[tool.ty.environment]
+root = ["."]
+extra-paths = ["tests"]
 
 # skip assert warnings with codacy
 [tool.bandit]

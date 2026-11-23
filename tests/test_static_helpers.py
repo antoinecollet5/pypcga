@@ -3,7 +3,7 @@ import numpy as np
 import pypcga
 from pypcga._pcga import PCGA
 
-from .conftest import (
+from conftest import (
     N_PC,
     S_DIM,
     quadratic_forward_model,
