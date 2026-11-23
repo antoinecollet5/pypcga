@@ -155,6 +155,12 @@ missing-argument = "ignore"
 root = ["."]
 extra-paths = ["tests"]
 
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+import-not-found = "ignore"
+
 # skip assert warnings with codacy
 [tool.bandit]
 skips = ["B101"]
